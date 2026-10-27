@@ -1,28 +1,40 @@
 <?php
 // Поллер Telegram-бота Гавайи22 — запускается по крону раз в минуту (CLI).
-// Читает getUpdates, обрабатывает команды админов в общем чате:
-//   /start, /help          — справка
-//   /houses                — список домиков
-//   /status                — домики + занятые периоды
-//   /busy                  — выбрать домик кнопками → ввести даты → занято
-//   /free                  — то же, но снимает занятость
-//   /busy 1 10.11-12.11    — одной командой
-//   /free 1 10.11-12.11
-// Занятые даты пишутся в site-data.json → сайт сразу блокирует их в форме.
+//
+// Модель:
+//   • Общая группа — ТОЛЬКО уведомления о новых заявках (их шлёт request.php).
+//     На сообщения в группе бот не отвечает.
+//   • Управление занятостью — в ЛИЧКЕ с ботом, навигация inline-кнопками:
+//       Меню → 🔴 Занять / 🟢 Освободить → кнопка домика → ввод дат → готово.
+//
+// Доступ: tg-config.php → 'admin_chats' => ['123456789', ...] — Telegram-ID
+// сотрудников. Если массив пуст — личка открыта всем (режим сбора ID:
+// каждый написавший видит свой ID и попадает в state['users']).
 //
 // НЕ лежит в docroot — деплоится вручную в ~/bot-poller.php.
 
 declare(strict_types=1);
 
-$DATA_DIR = __DIR__; // ~/data — поллер лежит рядом с конфигом
-$CFG_FILE = $DATA_DIR . '/tg-config.php';
-$DATA_FILE = $DATA_DIR . '/site-data.json';
+$DATA_DIR  = __DIR__;
+$CFG_FILE   = $DATA_DIR . '/tg-config.php';
+$DATA_FILE  = $DATA_DIR . '/site-data.json';
 $STATE_FILE = $DATA_DIR . '/bot-state.json';
-$SEED_FILE = $DATA_DIR . '/www/hawaii22.ru/api/seed-data.json';
+$SEED_FILE  = $DATA_DIR . '/www/hawaii22.ru/api/seed-data.json';
+$LOG_FILE   = $DATA_DIR . '/bot-poller.log';
 
 if (!is_file($CFG_FILE)) { fwrite(STDERR, "no config\n"); exit(1); }
 $cfg = require $CFG_FILE;
 if (empty($cfg['token'])) { fwrite(STDERR, "no token\n"); exit(1); }
+
+// Не даём двум прогонам работать одновременно — иначе один читает state
+// до того, как предыдущий его сохранил, и апдейты «проедаются».
+$LOCK = fopen($DATA_DIR . '/bot-poller.lock', 'c');
+if (!$LOCK || !flock($LOCK, LOCK_EX | LOCK_NB)) { exit(0); }
+
+function plog(string $s): void {
+    global $LOG_FILE;
+    file_put_contents($LOG_FILE, date('d.m.y H:i:s') . ' ' . $s . "\n", FILE_APPEND | LOCK_EX);
+}
 
 /* ---------------- Telegram API ---------------- */
 
@@ -45,9 +57,16 @@ function tg(array $cfg, string $method, array $params): array {
 }
 
 function sendMsg(array $cfg, $chatId, string $text, ?array $keyboard = null): void {
-    $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
+    $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML', 'disable_web_page_preview' => true];
     if ($keyboard) $p['reply_markup'] = ['inline_keyboard' => $keyboard];
     tg($cfg, 'sendMessage', $p);
+}
+
+// Редактирование сообщения — чистая навигация без простыни сообщений.
+function editMsg(array $cfg, $chatId, $msgId, string $text, ?array $keyboard = null): void {
+    $p = ['chat_id' => $chatId, 'message_id' => $msgId, 'text' => $text, 'parse_mode' => 'HTML'];
+    if ($keyboard) $p['reply_markup'] = ['inline_keyboard' => $keyboard];
+    tg($cfg, 'editMessageText', $p);
 }
 
 /* ---------------- Хранилище ---------------- */
@@ -75,7 +94,7 @@ function loadState(string $file): array {
 }
 
 function saveState(string $file, array $st): void {
-    file_put_contents($file, json_encode($st), LOCK_EX);
+    file_put_contents($file, json_encode($st, JSON_UNESCAPED_UNICODE), LOCK_EX);
 }
 
 /* ---------------- Даты ---------------- */
@@ -87,7 +106,6 @@ function parseDates(string $text): ?array {
     preg_match_all($rx, $text, $m);
     $dates = [];
     if (preg_match_all('/(\d{4})-(\d{2})-(\d{2})/', $text, $iso) && count($iso[0]) >= 1 && count($m[0]) < 2) {
-        // ISO-формат
         for ($i = 0; $i < count($iso[0]); $i++) $dates[] = sprintf('%04d-%02d-%02d', $iso[1][$i], $iso[2][$i], $iso[3][$i]);
     } else {
         for ($i = 0; $i < count($m[0]); $i++) {
@@ -125,128 +143,64 @@ function fmtRanges(array $dates): string {
     ));
 }
 
-/* ---------------- Логика команд ---------------- */
+/* ---------------- Тексты и клавиатуры ---------------- */
 
-$state = loadState($STATE_FILE);
-$data  = loadData($DATA_FILE, $SEED_FILE);
-$houses = $data['houses'] ?? [];
-
-$allowedChat = (string)($cfg['chat_id'] ?? '');
-
-$help = "🏝 <b>Бот Гавайи22</b>\n\n" .
-    "/houses — список домиков\n" .
-    "/status — занятые даты\n" .
-    "/busy — отметить занятость (выбор домика кнопками)\n" .
-    "/free — снять занятость\n\n" .
-    "Или сразу: <code>/busy 1 10.11-15.11</code>";
-
-$updates = tg($cfg, 'getUpdates', ['offset' => $state['offset'], 'timeout' => 0, 'limit' => 50]);
-if (!$updates['ok']) { sleep(1); exit(0); }
-
-foreach ((array)$updates['result'] as $u) {
-    $state['offset'] = max($state['offset'], (int)$u['update_id'] + 1);
-
-    // --- inline-кнопки: выбор домика ---
-    if (isset($u['callback_query'])) {
-        $cq = $u['callback_query'];
-        $chatId = (string)($cq['message']['chat']['id'] ?? '');
-        if ($allowedChat !== '' && $chatId !== $allowedChat) { tg($cfg, 'answerCallbackQuery', ['callback_query_id' => $cq['id']]); continue; }
-        $cb = (string)$cq['data'];
-        if (preg_match('/^(busy|free):(.+)$/', $cb, $m)) {
-            $house = null;
-            foreach ($houses as $i => $h) {
-                if ((string)$h['id'] === $m[2] || (string)($i + 1) === $m[2]) { $house = $h; break; }
-            }
-            tg($cfg, 'answerCallbackQuery', ['callback_query_id' => $cq['id']]);
-            if (!$house) { sendMsg($cfg, $chatId, 'Домик не найден.'); continue; }
-            $state['pending'][$chatId] = ['action' => $m[1], 'house' => $house['id'], 'ts' => time()];
-            sendMsg($cfg, $chatId, ($m[1] === 'busy' ? "🔴 Занять «{$house['name']}»" : "🟢 Освободить «{$house['name']}»") .
-                "\n\nВведите даты: <code>10.11-15.11</code> или одну дату <code>10.11</code>");
-        }
-        continue;
-    }
-
-    $msg = $u['message'] ?? null;
-    if (!$msg) continue;
-    $chatId = (string)$msg['chat']['id'];
-    $text = trim((string)($msg['text'] ?? ''));
-
-    // только наша группа (или личка админа из cfg['admin_chats'])
-    $adminChats = array_map('strval', (array)($cfg['admin_chats'] ?? []));
-    if ($allowedChat !== '' && $chatId !== $allowedChat && !in_array($chatId, $adminChats, true)) continue;
-    if ($text === '') continue;
-
-    // команды
-    if (preg_match('/^\/(start|help)/i', $text)) { sendMsg($cfg, $chatId, $help); continue; }
-
-    if (preg_match('/^\/houses/i', $text)) {
-        if (!$houses) { sendMsg($cfg, $chatId, 'Домиков пока нет — добавьте в админке сайта.'); continue; }
-        $list = "🏠 <b>Домики:</b>\n";
-        foreach ($houses as $i => $h) {
-            $n = count($h['blockedDates'] ?? []);
-            $list .= sprintf("%d. %s — %s₽/ночь%s\n", $i + 1, $h['name'], number_format((float)($h['pricePerNight'] ?? 0), 0, '', ' '), $n ? " (занято {$n} дн.)" : '');
-        }
-        sendMsg($cfg, $chatId, $list);
-        continue;
-    }
-
-    if (preg_match('/^\/status/i', $text)) {
-        if (!$houses) { sendMsg($cfg, $chatId, 'Домиков пока нет.'); continue; }
-        $list = "📅 <b>Занятость:</b>\n";
-        foreach ($houses as $i => $h) {
-            $bd = $h['blockedDates'] ?? [];
-            $list .= sprintf("%d. %s — %s\n", $i + 1, $h['name'], $bd ? fmtRanges($bd) : 'все даты свободны');
-        }
-        sendMsg($cfg, $chatId, $list);
-        continue;
-    }
-
-    if (preg_match('/^\/(busy|free)(?:\s+(.*))?$/iu', $text, $m)) {
-        $cmd = strtolower($m[1]);
-        $args = trim((string)($m[2] ?? ''));
-        // одной строкой: /busy 1 10.11-12.11
-        if ($args !== '' && preg_match('/^(\S+)\s+(.+)$/', $args, $am)) {
-            [$all, $houseRef, $dateStr] = $am;
-            $house = null;
-            foreach ($houses as $i => $h) {
-                if ((string)($i + 1) === $houseRef || (string)$h['id'] === $houseRef || mb_stripos((string)$h['name'], $houseRef) !== false) { $house = $h; break; }
-            }
-            if (!$house) { sendMsg($cfg, $chatId, "Домик «{$houseRef}» не найден. /houses — список."); continue; }
-            $days = parseDates($dateStr);
-            if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Пример: <code>/busy 1 10.11-15.11</code>'); continue; }
-            $houses = applyDates($houses, $house['id'], $days, $cmd === 'busy');
-            $data['houses'] = $houses;
-            saveData($DATA_FILE, $data);
-            sendMsg($cfg, $chatId, sprintf("%s «%s»: %s ✅", $cmd === 'busy' ? '🔴 Занято' : '🟢 Освобождено', $house['name'], fmtRanges($days)));
-            continue;
-        }
-        // без аргументов — кнопки
-        if (!$houses) { sendMsg($cfg, $chatId, 'Домиков пока нет.'); continue; }
-        $kb = [];
-        foreach ($houses as $i => $h) {
-            $kb[] = [['text' => ($i + 1) . '. ' . $h['name'], 'callback_data' => $cmd . ':' . $h['id']]];
-        }
-        sendMsg($cfg, $chatId, $cmd === 'busy' ? '🔴 Какой домик занять?' : '🟢 Какой домик освободить?', $kb);
-        continue;
-    }
-
-    // ожидание дат после выбора домика кнопкой
-    $pending = $state['pending'][$chatId] ?? null;
-    if ($pending && time() - (int)$pending['ts'] < 600) {
-        $days = parseDates($text);
-        if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Пример: <code>10.11-15.11</code> или <code>24.12</code>'); continue; }
-        unset($state['pending'][$chatId]);
-        $houses = applyDates($houses, $pending['house'], $days, $pending['action'] === 'busy');
-        $data['houses'] = $houses;
-        saveData($DATA_FILE, $data);
-        $name = 'домик';
-        foreach ($houses as $h) if ($h['id'] === $pending['house']) $name = $h['name'];
-        sendMsg($cfg, $chatId, sprintf("%s «%s»: %s ✅", $pending['action'] === 'busy' ? '🔴 Занято' : '🟢 Освобождено', $name, fmtRanges($days)));
-        continue;
-    }
+function menuText($chatId): string {
+    return "🏝 <b>Гавайи22 — занятость домиков</b>\n\n"
+        . "Ваш Telegram ID: <code>{$chatId}</code>\n"
+        . "(передайте его администратору для закрепления доступа)\n\n"
+        . "Выберите действие:";
 }
 
-saveState($STATE_FILE, $state);
+function menuKeyboard(): array {
+    return [
+        [['text' => '📅 Занятость', 'callback_data' => 'status']],
+        [
+            ['text' => '🔴 Занять даты', 'callback_data' => 'busy'],
+            ['text' => '🟢 Освободить', 'callback_data' => 'free'],
+        ],
+        [['text' => '🏠 Список домиков', 'callback_data' => 'houses']],
+    ];
+}
+
+function backKeyboard(): array {
+    return [[['text' => '◀️ В меню', 'callback_data' => 'menu']]];
+}
+
+function cancelKeyboard(): array {
+    return [[['text' => '✖️ Отмена', 'callback_data' => 'cancel']]];
+}
+
+function housesKeyboard(array $houses, string $cmd): array {
+    $kb = [];
+    foreach ($houses as $i => $h) {
+        $kb[] = [['text' => ($i + 1) . '. ' . $h['name'], 'callback_data' => $cmd . ':' . $h['id']]];
+    }
+    $kb[] = [['text' => '◀️ В меню', 'callback_data' => 'menu']];
+    return $kb;
+}
+
+function statusText(array $houses): string {
+    if (!$houses) return "🏠 Домиков пока нет — добавьте их в админке сайта.";
+    $list = "📅 <b>Занятость:</b>\n";
+    foreach ($houses as $i => $h) {
+        $bd = $h['blockedDates'] ?? [];
+        $list .= sprintf("%d. %s — %s\n", $i + 1, $h['name'], $bd ? fmtRanges($bd) : 'все даты свободны');
+    }
+    return $list;
+}
+
+function housesText(array $houses): string {
+    if (!$houses) return "🏠 Домиков пока нет — добавьте их в админке сайта.";
+    $list = "🏠 <b>Домики:</b>\n";
+    foreach ($houses as $i => $h) {
+        $n = count($h['blockedDates'] ?? []);
+        $list .= sprintf("%d. %s — %s₽/ночь%s\n", $i + 1, $h['name'],
+            number_format((float)($h['pricePerNight'] ?? 0), 0, '', ' '),
+            $n ? " (занято {$n} дн.)" : '');
+    }
+    return $list;
+}
 
 function applyDates(array $houses, string $houseId, array $days, bool $block): array {
     foreach ($houses as &$h) {
@@ -262,3 +216,166 @@ function applyDates(array $houses, string $houseId, array $days, bool $block): a
     }
     return $houses;
 }
+
+/* ---------------- Логика ---------------- */
+
+$state  = loadState($STATE_FILE);
+$data   = loadData($DATA_FILE, $SEED_FILE);
+$houses = $data['houses'] ?? [];
+
+// пустой admin_chats = режим настройки: личка открыта всем, ID собираем
+$adminChats = array_map('strval', array_filter((array)($cfg['admin_chats'] ?? [])));
+$isAllowed = function ($chatId) use ($adminChats): bool {
+    return !$adminChats || in_array((string)$chatId, $adminChats, true);
+};
+
+$updates = tg($cfg, 'getUpdates', ['offset' => $state['offset'], 'timeout' => 0, 'limit' => 50]);
+if (!$updates['ok']) { sleep(1); exit(0); }
+if (!empty($updates['result'])) plog('updates: ' . count((array)$updates['result']));
+
+foreach ((array)$updates['result'] as $u) {
+    $state['offset'] = max($state['offset'], (int)$u['update_id'] + 1);
+
+    /* ---------- inline-кнопки ---------- */
+    if (isset($u['callback_query'])) {
+        $cq = $u['callback_query'];
+        tg($cfg, 'answerCallbackQuery', ['callback_query_id' => $cq['id']]);
+
+        $chatId   = (string)($cq['message']['chat']['id'] ?? '');
+        $chatType = (string)($cq['message']['chat']['type'] ?? '');
+        $msgId    = $cq['message']['message_id'] ?? null;
+        if ($chatType !== 'private' || $chatId === '' || $msgId === null) continue;
+
+        if (!$isAllowed($chatId)) {
+            sendMsg($cfg, $chatId, "⛔ Нет доступа.\nВаш Telegram ID: <code>{$chatId}</code> — передайте администратору.");
+            continue;
+        }
+
+        $cb = (string)$cq['data'];
+        if ($cb === 'menu') {
+            unset($state['pending'][$chatId]);
+            editMsg($cfg, $chatId, $msgId, menuText($chatId), menuKeyboard());
+            continue;
+        }
+        if ($cb === 'cancel') {
+            unset($state['pending'][$chatId]);
+            editMsg($cfg, $chatId, $msgId, "Отменено.", backKeyboard());
+            continue;
+        }
+        if ($cb === 'status') {
+            editMsg($cfg, $chatId, $msgId, statusText($houses), backKeyboard());
+            continue;
+        }
+        if ($cb === 'houses') {
+            editMsg($cfg, $chatId, $msgId, housesText($houses), backKeyboard());
+            continue;
+        }
+        if ($cb === 'busy' || $cb === 'free') {
+            if (!$houses) { editMsg($cfg, $chatId, $msgId, 'Домиков пока нет — добавьте в админке сайта.', backKeyboard()); continue; }
+            editMsg($cfg, $chatId, $msgId, $cb === 'busy' ? '🔴 Какой домик занять?' : '🟢 Какой домик освободить?', housesKeyboard($houses, $cb));
+            continue;
+        }
+        if (preg_match('/^(busy|free):(.+)$/', $cb, $m)) {
+            $house = null;
+            foreach ($houses as $i => $h) {
+                if ((string)$h['id'] === $m[2] || (string)($i + 1) === $m[2]) { $house = $h; break; }
+            }
+            if (!$house) { editMsg($cfg, $chatId, $msgId, 'Домик не найден.', backKeyboard()); continue; }
+            $state['pending'][$chatId] = ['action' => $m[1], 'house' => $house['id'], 'ts' => time()];
+            editMsg($cfg, $chatId, $msgId,
+                ($m[1] === 'busy' ? "🔴 Занять «{$house['name']}»" : "🟢 Освободить «{$house['name']}»") .
+                "\n\nВведите даты: <code>10.11-15.11</code>\nили одну дату: <code>10.11</code>",
+                cancelKeyboard());
+            continue;
+        }
+        continue;
+    }
+
+    /* ---------- сообщения ---------- */
+    $msg = $u['message'] ?? null;
+    if (!$msg) continue;
+    $chatId = (string)$msg['chat']['id'];
+    if (($msg['chat']['type'] ?? '') !== 'private') continue; // группа — только уведомления
+    $text = trim((string)($msg['text'] ?? ''));
+
+    // запоминаем всех написавших — для сбора ID сотрудников
+    $from = $msg['from'] ?? [];
+    $state['users'][$chatId] = [
+        'name' => trim(($from['first_name'] ?? '') . ' ' . ($from['last_name'] ?? '')),
+        'username' => $from['username'] ?? '',
+        'ts' => time(),
+    ];
+
+    if (!$isAllowed($chatId)) {
+        sendMsg($cfg, $chatId, "⛔ Нет доступа.\nВаш Telegram ID: <code>{$chatId}</code> — передайте администратору.");
+        continue;
+    }
+    if ($text === '') continue;
+
+    // меню
+    if (preg_match('/^\/(start|menu|help)/i', $text)) {
+        unset($state['pending'][$chatId]);
+        sendMsg($cfg, $chatId, menuText($chatId), menuKeyboard());
+        continue;
+    }
+    if (preg_match('/^\/cancel/i', $text)) {
+        unset($state['pending'][$chatId]);
+        sendMsg($cfg, $chatId, 'Отменено.', backKeyboard());
+        continue;
+    }
+    if (preg_match('/^\/status/i', $text)) {
+        sendMsg($cfg, $chatId, statusText($houses), backKeyboard());
+        continue;
+    }
+    if (preg_match('/^\/houses/i', $text)) {
+        sendMsg($cfg, $chatId, housesText($houses), backKeyboard());
+        continue;
+    }
+
+    // power-user шорткат: /busy 1 10.11-15.11
+    if (preg_match('/^\/(busy|free)(?:\s+(.*))?$/iu', $text, $m)) {
+        $cmd = strtolower($m[1]);
+        $args = trim((string)($m[2] ?? ''));
+        unset($state['pending'][$chatId]);
+        if ($args !== '' && preg_match('/^(\S+)\s+(.+)$/', $args, $am)) {
+            [, $houseRef, $dateStr] = $am;
+            $house = null;
+            foreach ($houses as $i => $h) {
+                if ((string)($i + 1) === $houseRef || (string)$h['id'] === $houseRef || mb_stripos((string)$h['name'], $houseRef) !== false) { $house = $h; break; }
+            }
+            if (!$house) { sendMsg($cfg, $chatId, "Домик «{$houseRef}» не найден.", backKeyboard()); continue; }
+            $days = parseDates($dateStr);
+            if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Пример: <code>/busy 1 10.11-15.11</code>', backKeyboard()); continue; }
+            $houses = applyDates($houses, $house['id'], $days, $cmd === 'busy');
+            $data['houses'] = $houses;
+            saveData($DATA_FILE, $data);
+            plog("applyDates $cmd {$house['id']}: " . fmtRanges($days));
+            sendMsg($cfg, $chatId, sprintf("%s «%s»: %s ✅", $cmd === 'busy' ? '🔴 Занято' : '🟢 Освобождено', $house['name'], fmtRanges($days)), backKeyboard());
+            continue;
+        }
+        if (!$houses) { sendMsg($cfg, $chatId, 'Домиков пока нет — добавьте в админке сайта.', backKeyboard()); continue; }
+        sendMsg($cfg, $chatId, $cmd === 'busy' ? '🔴 Какой домик занять?' : '🟢 Какой домик освободить?', housesKeyboard($houses, $cmd));
+        continue;
+    }
+
+    // ожидание дат после выбора домика кнопкой
+    $pending = $state['pending'][$chatId] ?? null;
+    if ($pending) {
+        $days = parseDates($text);
+        if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Пример: <code>10.11-15.11</code> или <code>24.12</code>', cancelKeyboard()); continue; }
+        unset($state['pending'][$chatId]);
+        $houses = applyDates($houses, $pending['house'], $days, $pending['action'] === 'busy');
+        $data['houses'] = $houses;
+        saveData($DATA_FILE, $data);
+        $name = 'домик';
+        foreach ($houses as $h) if ($h['id'] === $pending['house']) $name = $h['name'];
+        plog("applyDates {$pending['action']} {$pending['house']}: " . fmtRanges($days));
+        sendMsg($cfg, $chatId, sprintf("%s «%s»: %s ✅", $pending['action'] === 'busy' ? '🔴 Занято' : '🟢 Освобождено', $name, fmtRanges($days)), menuKeyboard());
+        continue;
+    }
+
+    // любой другой текст в личке — показываем меню
+    sendMsg($cfg, $chatId, menuText($chatId), menuKeyboard());
+}
+
+saveState($STATE_FILE, $state);
