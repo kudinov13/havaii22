@@ -93,12 +93,19 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `House.blockedDates?: string[]` — занятые даты ISO; вкладка «Занятость» ставит диапазоны, в карточке домика они видны и блокируют заявку на эти даты.
 - Галерея «Кадры на память»: состав кадров фиксирован — только замена фото/подписи/порядок (без добавления и удаления).
 
-### Модель заявки (Request) — для будущего Telegram-бота
+### Модель заявки (Request)
 ```ts
 { name, phone, comment?, houseId?, houseName?, service?, checkIn?, checkOut?, source, createdAt, read }
 ```
 - Формы: карточка домика (домик + даты + доп. услуга + комментарий) и футер (домик + комментарий). Оплаты на сайте нет.
-- **План при деплое на хостинг:** заявки POST-ить в бота/endpoint → админам в ЛС; админы помечают занятые даты через бота (без входа в /admin). Бот и бэкенд создадим при выгрузке.
+
+### Telegram-уведомления (реализовано, окт 2026)
+- `public/api/request.php` → endpoint `POST /api/request.php` (Apache+PHP на хостинге). `addRequest()` в siteStore шлёт POST туда + дублирует в localStorage.
+- Уведомления идут ботом @Havaii22_bot в группу «Уведомления» (chat_id −5002081918). TG API — через HTTP-прокси (заблокирован в РФ).
+- **Секреты в `~/tg-config.php` вне docroot** (`/var/www/u3698395/data/tg-config.php`, chmod 600): `token`, `chat_id`, `proxy`. Переживает деплои, не в git.
+- chat_id авто-находится из getUpdates (группа), кэш в `~/tg-chatid.txt`; лог заявок `~/requests-log.jsonl`.
+- Антиспам: honeypot-поле `website`, лимит 1 заявка/20 сек и 15/сутки с IP.
+- **Дальше:** команды бота для занятых дат (выбор домика → диапазон) — на шаред-хостинге через PHP-поллер по крону, т.к. демон/webhook недоступны.
 
 ## Хостинг и деплой (reg.ru, ispmanager)
 
