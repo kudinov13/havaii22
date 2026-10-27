@@ -158,6 +158,22 @@ export function getRequests(): Request[] {
   return read<Request[]>(REQUESTS_KEY, []);
 }
 
+// Отправка заявки на сервер → уведомление в Telegram-чат (public/api/request.php).
+// Fire-and-forget: на статике/в dev endpoint может отсутствовать — заявка
+// всё равно сохраняется в localStorage для админки.
+function notifyTelegram(req: Request): void {
+  if (typeof window === "undefined") return;
+  try {
+    fetch("/api/request.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }).catch(() => {});
+  } catch {
+    /* endpoint недоступен — локальная копия заявки уже сохранена */
+  }
+}
+
 export function addRequest(input: Omit<Request, "id" | "createdAt" | "read">): void {
   const req: Request = {
     ...input,
@@ -166,6 +182,7 @@ export function addRequest(input: Omit<Request, "id" | "createdAt" | "read">): v
     read: false,
   };
   write(REQUESTS_KEY, [req, ...getRequests()]);
+  notifyTelegram(req);
 }
 
 export function markRequestRead(id: string, read: boolean): void {
