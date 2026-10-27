@@ -7,9 +7,10 @@
 //   • Управление занятостью — в ЛИЧКЕ с ботом, навигация inline-кнопками:
 //       Меню → 🔴 Занять / 🟢 Освободить → кнопка домика → ввод дат → готово.
 //
-// Доступ: tg-config.php → 'admin_chats' => ['123456789', ...] — Telegram-ID
-// сотрудников. Если массив пуст — личка открыта всем (режим сбора ID:
-// каждый написавший видит свой ID и попадает в state['users']).
+// Доступ: по паролю. Первое сообщение в ЛС → бот просит пароль
+// (tg-config.php → 'bot_password', иначе 'admin_code'). Ввёл верно —
+// chat_id записывается в state['authed'] и доступ остаётся навсегда.
+// /logout — сбросить доступ на этом устройстве.
 //
 // НЕ лежит в docroot — деплоится вручную в ~/bot-poller.php.
 
@@ -146,10 +147,7 @@ function fmtRanges(array $dates): string {
 /* ---------------- Тексты и клавиатуры ---------------- */
 
 function menuText($chatId): string {
-    return "🏝 <b>Гавайи22 — занятость домиков</b>\n\n"
-        . "Ваш Telegram ID: <code>{$chatId}</code>\n"
-        . "(передайте его администратору для закрепления доступа)\n\n"
-        . "Выберите действие:";
+    return "🏝 <b>Гавайи22 — занятость домиков</b>\n\nВыберите действие:";
 }
 
 function menuKeyboard(): array {
@@ -223,10 +221,10 @@ $state  = loadState($STATE_FILE);
 $data   = loadData($DATA_FILE, $SEED_FILE);
 $houses = $data['houses'] ?? [];
 
-// пустой admin_chats = режим настройки: личка открыта всем, ID собираем
-$adminChats = array_map('strval', array_filter((array)($cfg['admin_chats'] ?? [])));
-$isAllowed = function ($chatId) use ($adminChats): bool {
-    return !$adminChats || in_array((string)$chatId, $adminChats, true);
+// Пароль доступа: bot_password, иначе admin_code. Пусто — открыто всем.
+$BOT_PASS = trim((string)($cfg['bot_password'] ?? $cfg['admin_code'] ?? ''));
+$isAuthed = function ($chatId) use (&$state, $BOT_PASS): bool {
+    return $BOT_PASS === '' || isset($state['authed'][(string)$chatId]);
 };
 
 $updates = tg($cfg, 'getUpdates', ['offset' => $state['offset'], 'timeout' => 0, 'limit' => 50]);
@@ -246,8 +244,8 @@ foreach ((array)$updates['result'] as $u) {
         $msgId    = $cq['message']['message_id'] ?? null;
         if ($chatType !== 'private' || $chatId === '' || $msgId === null) continue;
 
-        if (!$isAllowed($chatId)) {
-            sendMsg($cfg, $chatId, "⛔ Нет доступа.\nВаш Telegram ID: <code>{$chatId}</code> — передайте администратору.");
+        if (!$isAuthed($chatId)) {
+            sendMsg($cfg, $chatId, "🔐 Нужна авторизация. Отправьте пароль доступа.");
             continue;
         }
 
@@ -298,19 +296,38 @@ foreach ((array)$updates['result'] as $u) {
     if (($msg['chat']['type'] ?? '') !== 'private') continue; // группа — только уведомления
     $text = trim((string)($msg['text'] ?? ''));
 
-    // запоминаем всех написавших — для сбора ID сотрудников
+    // запоминаем всех написавших — пригодится для аудита доступа
     $from = $msg['from'] ?? [];
     $state['users'][$chatId] = [
         'name' => trim(($from['first_name'] ?? '') . ' ' . ($from['last_name'] ?? '')),
         'username' => $from['username'] ?? '',
         'ts' => time(),
     ];
+    if ($text === '') continue;
 
-    if (!$isAllowed($chatId)) {
-        sendMsg($cfg, $chatId, "⛔ Нет доступа.\nВаш Telegram ID: <code>{$chatId}</code> — передайте администратору.");
+    // --- авторизация по паролю ---
+    if (!$isAuthed($chatId)) {
+        if ($BOT_PASS !== '' && hash_equals($BOT_PASS, $text)) {
+            unset($state['await_pass'][$chatId]);
+            $state['authed'][$chatId] = ['ts' => time()];
+            plog("auth ok $chatId ({$state['users'][$chatId]['name']} @{$state['users'][$chatId]['username']})");
+            sendMsg($cfg, $chatId, "✅ Доступ открыт!\n\n" . menuText($chatId), menuKeyboard());
+        } elseif (isset($state['await_pass'][$chatId])) {
+            sendMsg($cfg, $chatId, "⛔ Неверный пароль. Попробуйте ещё раз:");
+        } else {
+            $state['await_pass'][$chatId] = true;
+            sendMsg($cfg, $chatId, "🏝 <b>Бот Гавайи22</b>\n\nВведите пароль доступа:");
+        }
         continue;
     }
-    if ($text === '') continue;
+
+    // --- дальше только авторизованные ---
+    if (preg_match('/^\/logout/i', $text)) {
+        unset($state['authed'][$chatId], $state['pending'][$chatId]);
+        plog("logout $chatId");
+        sendMsg($cfg, $chatId, 'Выход выполнен. Для входа: /start');
+        continue;
+    }
 
     // меню
     if (preg_match('/^\/(start|menu|help)/i', $text)) {
