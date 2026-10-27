@@ -88,10 +88,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Админка и заявки (реализовано, окт 2026)
 
-- `/admin`, код `gavai22` (демо-доступ, sessionStorage). Вкладки: Заявки / Занятость / Домики / Услуги / Фото сайта.
-- Хранилище: `lib/siteStore.ts` — localStorage (`g22_overrides`, `g22_requests`) + IndexedDB для фото (`idb:<key>`, резолв через `useImageSrc`). **Данные живут только в браузере устройства** — для продакшена нужен бэкенд.
-- `House.blockedDates?: string[]` — занятые даты ISO; вкладка «Занятость» ставит диапазоны, в карточке домика они видны и блокируют заявку на эти даты.
+- `/admin`, код `gavai22` (sessionStorage; сервер проверяет тот же код через `admin_code` в tg-config.php). Вкладки: Заявки / Занятость / Домики / Услуги / Фото сайта.
+- **Источник данных — сервер**: `~/data/site-data.json` (вне docroot). `lib/siteStore.ts` при загрузке тянет `GET /api/data.php`; правки админки идут `POST /api/admin.php?action=save` и лежат в общем JSON — видны всем устройствам и боту. localStorage остаётся офлайн-фолбэком/черновиком.
+- Фото грузятся `POST /api/upload.php` → `~/data/uploads/` → отдаются как `/uploads/<file>` через симлинк `~/www/hawaii22.ru/uploads` (пересоздаётся deploy-скриптом после swap). Офлайн-фолбэк — IndexedDB (`idb:<key>`).
+- `House.blockedDates?: string[]` — занятые даты ISO; вкладка «Занятость» и Телеграм-бот пишут сюда; в карточке домика они видны и блокируют заявку.
 - Галерея «Кадры на память»: состав кадров фиксирован — только замена фото/подписи/порядок (без добавления и удаления).
+- Заявки: `request.php` пишет `~/data/requests-log.jsonl`; админка читает через `action=requests`/`delete_request`.
 
 ### Модель заявки (Request)
 ```ts
@@ -105,7 +107,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Секреты в `~/tg-config.php` вне docroot** (`/var/www/u3698395/data/tg-config.php`, chmod 600): `token`, `chat_id`, `proxy`. Переживает деплои, не в git.
 - chat_id авто-находится из getUpdates (группа), кэш в `~/tg-chatid.txt`; лог заявок `~/requests-log.jsonl`.
 - Антиспам: honeypot-поле `website`, лимит 1 заявка/20 сек и 15/сутки с IP.
-- **Дальше:** команды бота для занятых дат (выбор домика → диапазон) — на шаред-хостинге через PHP-поллер по крону, т.к. демон/webhook недоступны.
+
+### Бот-поллер (занятость из Telegram, окт 2026)
+- `server/bot-poller.php` → деплоится вручную в `~/bot-poller.php` (вне docroot). Крон `* * * * * /opt/php/8.3/bin/php /var/www/u3698395/data/bot-poller.php`.
+- Команды в группе: `/houses`, `/status`, `/busy` (кнопки → даты `10.11-15.11`), `/free`, либо одной строкой `/busy 1 10.11-15.11`. Отвечает только в чате cfg['chat_id'] или чатам из `admin_chats`.
+- Пишет `houses[].blockedDates` в site-data.json (сид из `api/seed-data.json`, если файла ещё нет) → сайт и админка видят занятость общую.
+- Оффсет и ожидание дат — `~/bot-state.json`.
 
 ## Хостинг и деплой (reg.ru, ispmanager)
 
