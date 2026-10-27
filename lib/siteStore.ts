@@ -1,13 +1,17 @@
-// Клиентское хранилище сайта: переопределения данных админкой (localStorage)
-// + заявки из форм. Дефолт — lib/data.ts; правки сохраняются поверх.
-// Фото хранятся в IndexedDB (lib/imgdb.ts), в данных — ссылки "idb:<key>".
+// Клиентское хранилище сайта.
+// Источник данных — сервер (/api/data.php → ~/data/site-data.json на хостинге):
+// домики, услуги, галерея, занятые даты общие для всех устройств и бота.
+// localStorage остаётся офлайн-кэшем/черновиком, если API недоступен (dev-режим).
+// Заявки: формы POST-ят в /api/request.php (→ Telegram) + админка читает
+// серверный лог через /api/admin.php.
 
 import { useSyncExternalStore } from "react";
 import type { House, GalleryItem, Service } from "./types";
 import { HOUSES, GALLERY_ITEMS, SERVICES } from "./data";
 
-const OVERRIDES_KEY = "g22_overrides";
-const REQUESTS_KEY = "g22_requests";
+const OVERRIDES_KEY = "g22_overrides"; // локальный кэш/черновик
+const READ_IDS_KEY = "g22_read_ids";   // прочитанные заявки (локально)
+const ADMIN_CODE_KEY = "g22_admin_code";
 const EVENT = "g22-store-change";
 
 export interface SiteOverrides {
@@ -22,12 +26,9 @@ export interface Request {
   name: string;
   phone: string;
   comment?: string;
-  /** Выбранный домик (id + имя — для бота и админки) */
   houseId?: string;
   houseName?: string;
-  /** Доп. услуга к брони (напр. «Баня на дровах») */
   service?: string;
-  /** Даты брони "YYYY-MM-DD" (если заявка из карточки домика) */
   checkIn?: string;
   checkOut?: string;
   source: string;
@@ -35,7 +36,30 @@ export interface Request {
   read: boolean;
 }
 
-// Кэш, чтобы getSnapshot для useSyncExternalStore возвращал стабильные ссылки
+// Серверные данные — основной источник правды после загрузки
+let serverData: SiteOverrides | null = null;
+let serverBooted = false;
+
+function notify(): void {
+  window.dispatchEvent(new CustomEvent(EVENT));
+}
+
+function bootstrapServer(): void {
+  if (serverBooted || typeof window === "undefined") return;
+  serverBooted = true;
+  fetch("/api/data.php")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (d?.ok && d.data) {
+        serverData = d.data;
+        notify();
+      }
+    })
+    .catch(() => {});
+}
+
+/* ---------- Локальный кэш (fallback / офлайн) ---------- */
+
 const cache = new Map<string, { raw: string | null; val: unknown }>();
 
 function read<T>(key: string, fallback: T): T {
@@ -62,14 +86,15 @@ function read<T>(key: string, fallback: T): T {
 
 function write(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
-  window.dispatchEvent(new CustomEvent(EVENT));
+  notify();
 }
 
-/* ---------- Подписка на изменения (вкл. кросс-вкладку) ---------- */
+/* ---------- Подписка ---------- */
 
 export function subscribeStore(callback: () => void): () => void {
+  bootstrapServer();
   const onStorage = (e: StorageEvent) => {
-    if (e.key === OVERRIDES_KEY || e.key === REQUESTS_KEY) callback();
+    if (e.key === OVERRIDES_KEY || e.key === READ_IDS_KEY) callback();
   };
   window.addEventListener(EVENT, callback);
   window.addEventListener("storage", onStorage);
@@ -77,6 +102,47 @@ export function subscribeStore(callback: () => void): () => void {
     window.removeEventListener(EVENT, callback);
     window.removeEventListener("storage", onStorage);
   };
+}
+
+/* ---------- Админ-код и сохранение на сервер ---------- */
+
+export function getAdminCode(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(ADMIN_CODE_KEY) ?? "";
+}
+
+export function setAdminCode(code: string): void {
+  sessionStorage.setItem(ADMIN_CODE_KEY, code);
+}
+
+/** Проверка кода на сервере. true = ок, false = неверный, null = сервер недоступен (dev). */
+export async function verifyAdminCode(code: string): Promise<boolean | null> {
+  try {
+    const r = await fetch("/api/admin.php?action=ping", { headers: { "X-Admin-Code": code } });
+    if (r.status === 403) return false;
+    const j = await r.json();
+    return j?.ok === true;
+  } catch {
+    return null;
+  }
+}
+
+/** Сохранение патча в общий site-data.json через /api/admin.php */
+async function pushToServer(patch: Partial<SiteOverrides>): Promise<void> {
+  const code = getAdminCode();
+  if (!code) return;
+  try {
+    const r = await fetch("/api/admin.php?action=save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Code": code },
+      body: JSON.stringify({ data: patch }),
+    });
+    if (r.ok) {
+      serverData = { ...(serverData ?? {}), ...patch };
+    }
+  } catch {
+    /* офлайн — остаётся локальная копия */
+  }
 }
 
 /* ---------- Переопределения контента ---------- */
@@ -87,10 +153,11 @@ export function getOverrides(): SiteOverrides {
 
 export function saveOverrides(patch: Partial<SiteOverrides>): void {
   write(OVERRIDES_KEY, { ...getOverrides(), ...patch });
+  void pushToServer(patch);
 }
 
 export function getHouses(): House[] {
-  return getOverrides().houses ?? HOUSES;
+  return serverData?.houses ?? getOverrides().houses ?? HOUSES;
 }
 
 export function saveHouses(houses: House[]): void {
@@ -98,7 +165,7 @@ export function saveHouses(houses: House[]): void {
 }
 
 export function getGallery(): GalleryItem[] {
-  return getOverrides().gallery ?? GALLERY_ITEMS;
+  return serverData?.gallery ?? getOverrides().gallery ?? GALLERY_ITEMS;
 }
 
 export function saveGallery(gallery: GalleryItem[]): void {
@@ -106,7 +173,7 @@ export function saveGallery(gallery: GalleryItem[]): void {
 }
 
 export function getServices(): Service[] {
-  return getOverrides().services ?? SERVICES;
+  return serverData?.services ?? getOverrides().services ?? SERVICES;
 }
 
 export function saveServices(services: Service[]): void {
@@ -116,7 +183,7 @@ export function saveServices(services: Service[]): void {
 export const DEFAULT_ABOUT_BG = "/gallery/gal-aero.jpg";
 
 export function getAboutBg(): string {
-  return getOverrides().aboutBg ?? DEFAULT_ABOUT_BG;
+  return serverData?.aboutBg ?? getOverrides().aboutBg ?? DEFAULT_ABOUT_BG;
 }
 
 export function saveAboutBg(src: string): void {
@@ -125,12 +192,21 @@ export function saveAboutBg(src: string): void {
 
 export function resetOverrides(): void {
   localStorage.removeItem(OVERRIDES_KEY);
-  window.dispatchEvent(new CustomEvent(EVENT));
+  serverData = null;
+  serverBooted = false;
+  notify();
+  // сбрасываем и на сервере — дефолты восстановятся из сборки
+  const code = getAdminCode();
+  if (code) {
+    fetch("/api/admin.php?action=save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Code": code },
+      body: JSON.stringify({ data: { houses: HOUSES, services: SERVICES, gallery: GALLERY_ITEMS, aboutBg: DEFAULT_ABOUT_BG } }),
+    }).then(() => { serverData = null; bootstrapServer(); }).catch(() => {});
+  }
 }
 
-/* ---------- React-хуки (useSyncExternalStore) ---------- */
-
-const NO_REQUESTS: Request[] = [];
+/* ---------- React-хуки ---------- */
 
 export function useHouses(): House[] {
   return useSyncExternalStore(subscribeStore, getHouses, () => HOUSES);
@@ -148,19 +224,9 @@ export function useAboutBg(): string {
   return useSyncExternalStore(subscribeStore, getAboutBg, () => DEFAULT_ABOUT_BG);
 }
 
-export function useRequests(): Request[] {
-  return useSyncExternalStore(subscribeStore, getRequests, () => NO_REQUESTS);
-}
-
 /* ---------- Заявки ---------- */
 
-export function getRequests(): Request[] {
-  return read<Request[]>(REQUESTS_KEY, []);
-}
-
 // Отправка заявки на сервер → уведомление в Telegram-чат (public/api/request.php).
-// Fire-and-forget: на статике/в dev endpoint может отсутствовать — заявка
-// всё равно сохраняется в localStorage для админки.
 function notifyTelegram(req: Request): void {
   if (typeof window === "undefined") return;
   try {
@@ -170,7 +236,7 @@ function notifyTelegram(req: Request): void {
       body: JSON.stringify(req),
     }).catch(() => {});
   } catch {
-    /* endpoint недоступен — локальная копия заявки уже сохранена */
+    /* endpoint недоступен — заявка уйдёт только в серверный лог при наличии API */
   }
 }
 
@@ -181,14 +247,77 @@ export function addRequest(input: Omit<Request, "id" | "createdAt" | "read">): v
     createdAt: Date.now(),
     read: false,
   };
-  write(REQUESTS_KEY, [req, ...getRequests()]);
   notifyTelegram(req);
 }
 
-export function markRequestRead(id: string, read: boolean): void {
-  write(REQUESTS_KEY, getRequests().map((r) => (r.id === id ? { ...r, read } : r)));
+/* ---------- Заявки в админке: серверный лог + локальные отметки прочтения ---------- */
+
+export interface ServerRequest {
+  id: string;
+  ts: number;
+  ip?: string;
+  name: string;
+  phone: string;
+  houseName?: string | null;
+  service?: string | null;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  comment?: string | null;
+  source?: string | null;
+  tg?: boolean;
 }
 
-export function deleteRequest(id: string): void {
-  write(REQUESTS_KEY, getRequests().filter((r) => r.id !== id));
+// Кэш серверных заявок — шапка админки и вкладка читают его
+let serverRequests: ServerRequest[] = [];
+let requestsFetched = false;
+
+export async function refreshServerRequests(): Promise<void> {
+  const code = getAdminCode();
+  if (!code) return;
+  try {
+    const r = await fetch("/api/admin.php?action=requests", { headers: { "X-Admin-Code": code } });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (Array.isArray(j?.requests)) {
+      serverRequests = j.requests;
+      requestsFetched = true;
+      notify();
+    }
+  } catch {
+    /* офлайн */
+  }
+}
+
+export function getServerRequests(): ServerRequest[] {
+  return serverRequests;
+}
+
+export function useServerRequests(): ServerRequest[] {
+  return useSyncExternalStore(subscribeStore, getServerRequests, () => serverRequests);
+}
+
+export function serverRequestsFetched(): boolean {
+  return requestsFetched;
+}
+
+export async function deleteServerRequest(id: string): Promise<boolean> {
+  const code = getAdminCode();
+  try {
+    const r = await fetch(`/api/admin.php?action=delete_request&id=${encodeURIComponent(id)}`, {
+      headers: { "X-Admin-Code": code },
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+export function getReadIds(): Set<string> {
+  return new Set(read<string[]>(READ_IDS_KEY, []));
+}
+
+export function markRequestRead(id: string, readIt: boolean): void {
+  const ids = getReadIds();
+  if (readIt) ids.add(id); else ids.delete(id);
+  write(READ_IDS_KEY, [...ids]);
 }

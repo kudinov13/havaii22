@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Anchor, ClipboardList, Home, Images, LogOut, RotateCcw, KeyRound, ExternalLink, CalendarOff, BadgePercent } from "lucide-react";
 import { RequestsAdmin } from "@/components/admin/RequestsAdmin";
@@ -8,11 +8,11 @@ import { HousesAdmin } from "@/components/admin/HousesAdmin";
 import { PhotosAdmin } from "@/components/admin/PhotosAdmin";
 import { ServicesAdmin } from "@/components/admin/ServicesAdmin";
 import { BookingsAdmin } from "@/components/admin/BookingsAdmin";
-import { resetOverrides, useRequests } from "@/lib/siteStore";
+import { resetOverrides, useServerRequests, getReadIds, setAdminCode, verifyAdminCode, refreshServerRequests } from "@/lib/siteStore";
 import { cn } from "@/lib/utils";
 import { inputCls, btnPrimary, btnGhost } from "@/components/admin/ui";
 
-// Демо-доступ: статический сайт без бэкенда — пароль лишь от случайных гостей.
+// Код проверяется на сервере (/api/admin.php); локальный — фолбэк для dev.
 const ADMIN_CODE = "gavai22";
 const AUTH_KEY = "g22_admin_auth";
 const AUTH_EVENT = "g22-auth-change";
@@ -54,14 +54,23 @@ export default function AdminPage() {
   const [error, setError] = useState(false);
   const [tab, setTab] = useState<Tab>("requests");
   const [confirmReset, setConfirmReset] = useState(false);
-  const requests = useRequests();
-  const unread = requests.filter((r) => !r.read).length;
+  const requests = useServerRequests();
+  const readIds = getReadIds();
+  const unread = requests.filter((r) => !readIds.has(r.id)).length;
 
-  function login(e: React.FormEvent) {
+  useEffect(() => {
+    if (authed) void refreshServerRequests();
+  }, [authed]);
+
+  async function login(e: React.FormEvent) {
     e.preventDefault();
-    if (code === ADMIN_CODE) {
+    const ok = await verifyAdminCode(code);
+    // null = сервер недоступен (dev/offline) — сверяем с локальным кодом
+    if (ok === true || (ok === null && code === ADMIN_CODE)) {
+      setAdminCode(code);
       sessionStorage.setItem(AUTH_KEY, "1");
       window.dispatchEvent(new CustomEvent(AUTH_EVENT));
+      void refreshServerRequests();
     } else {
       setError(true);
     }

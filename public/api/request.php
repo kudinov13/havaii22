@@ -139,6 +139,7 @@ if ($cid !== null) {
 
 // --- бэкап-лог заявок (вне docroot, рядом с конфигом) ---
 $logLine = json_encode([
+    'id' => $field('id') ?: uniqid('r_'),
     'ts' => $now, 'ip' => $ip, 'name' => $name, 'phone' => $phone,
     'houseName' => $in['houseName'] ?? null, 'service' => $in['service'] ?? null,
     'checkIn' => $ci ?: null, 'checkOut' => $co ?: null,

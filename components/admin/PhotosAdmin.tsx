@@ -142,8 +142,8 @@ export function PhotosAdmin() {
       </div>
 
       <div className={cn("rounded-soft border border-sand-deep bg-paper/60 p-4 text-xs leading-relaxed text-ink-muted")}>
-        Загруженные фото хранятся в браузере (IndexedDB), структура — в localStorage.
-        Правки видны на этом устройстве сразу после сохранения.
+        Загруженные фото и правки сохраняются на сервере — видны всем посетителям.
+        Если сайт открыт локально без бэкенда, фото уйдут в IndexedDB браузера.
       </div>
     </div>
   );

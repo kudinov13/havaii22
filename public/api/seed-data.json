@@ -1,0 +1,50 @@
+{
+  "houses": [
+    {
+      "id": "h6",
+      "slug": "domik",
+      "name": "Домик у воды",
+      "type": "family",
+      "status": "free",
+      "shortDesc": "A-frame домик у самого берега — со своей беседкой и мангалом",
+      "description": "Уютный дом для комфортного отдыха. Внутри есть всё необходимое: оборудованная кухня, душ, туалет, ТВ (200+ каналов) и кондиционер. У каждого домика своя беседка и мангальная зона — уже включены в стоимость. Постельное бельё, полотенца, посуда и чайник — в наличии.",
+      "pricePerNight": 10000,
+      "guests": 6,
+      "area": 0,
+      "amenities": ["kitchen", "tv", "ac", "shower", "toilet", "bbq", "gazebo", "fridge", "kettle", "dishes", "linen"],
+      "images": [
+        {"id": "h6-img-1", "src": "/houses/domik-1.jpg", "alt": "Домик A-frame у воды", "order": 0, "isCover": true},
+        {"id": "h6-img-2", "src": "/houses/domik-2.jpg", "alt": "Гостиная с панорамным окном", "order": 1, "isCover": false},
+        {"id": "h6-img-3", "src": "/houses/domik-3.jpg", "alt": "Спальня в мансарде", "order": 2, "isCover": false},
+        {"id": "h6-img-4", "src": "/houses/domik-4.jpg", "alt": "Кухня и лестница", "order": 3, "isCover": false},
+        {"id": "h6-img-5", "src": "/houses/domik-5.jpg", "alt": "Беседка со шторами", "order": 4, "isCover": false},
+        {"id": "h6-img-6", "src": "/houses/domik-6.jpg", "alt": "Мангальная зона", "order": 5, "isCover": false}
+      ],
+      "blockedDates": []
+    }
+  ],
+  "services": [
+    {"icon": "flame",    "title": "Баня на дровах",        "description": "Русская парная на дровах у самой воды. Аренда от 3 часов, до 6 гостей.", "price": "1 500 ₽/час"},
+    {"icon": "bath",     "title": "Беседка с баней-бочкой", "description": "Огороженная зона: баня-бочка, холодильник, вода, мангальная зона.", "price": "от 2 000 ₽/час"},
+    {"icon": "waves",    "title": "SUP-прокат",             "description": "Сапы у пляжа. Спасательные жилеты прилагаются к каждому сапу.", "price": "400 ₽ / 30 мин"},
+    {"icon": "sailboat", "title": "Катамараны",             "description": "Прогулки по изумрудной воде карьера.", "price": "по прайсу"},
+    {"icon": "tent",     "title": "Беседка и мангал",       "description": "У каждого домика своя беседка, мангал, шампуры и решётка.", "price": "у каждого домика"},
+    {"icon": "beer",     "title": "Мини-бар",               "description": "На территории: лимонады, мороженое и другое.", "price": "на месте"}
+  ],
+  "gallery": [
+    {"id": "gal-aero",   "src": "/gallery/gal-aero.jpg",   "alt": "Аэросъёмка базы Гавайи22",            "caption": "Вся база с высоты — домики у самой воды"},
+    {"id": "gal-water",  "src": "/gallery/gal-water.jpg",  "alt": "Панорама базы с воды",                "caption": "Домики прямо у воды — вид с озера"},
+    {"id": "gal-aframe", "src": "/gallery/gal-aframe.jpg", "alt": "Домик A-frame с беседкой",            "caption": "Домик, беседка и мангальная зона"},
+    {"id": "gal-8",      "src": "/gallery/gal-8.jpg",      "alt": "Дети на пляже у воды",                "caption": "Свой пляж и пологий вход в воду"},
+    {"id": "gal-3",      "src": "/gallery/gal-3.jpg",      "alt": "Прогулка на сапах по озеру",          "caption": "Сапы и прогулки по воде"},
+    {"id": "gal-4",      "src": "/gallery/gal-4.jpg",      "alt": "Дети на катамаране в жилетах",        "caption": "Катамараны — жилеты выдаём"},
+    {"id": "gal-1",      "src": "/gallery/gal-1.jpg",      "alt": "Закат над озером, галечный берег",    "caption": "Закаты, ради которых приезжают"},
+    {"id": "gal-9",      "src": "/gallery/gal-9.jpg",      "alt": "Интерьер домика A-frame",             "caption": "Панорамные окна — озеро прямо из домика"},
+    {"id": "gal-2",      "src": "/gallery/gal-2.jpg",      "alt": "Беседка у воды с вечерней подсветкой", "caption": "Беседки у воды с вечерней подсветкой"},
+    {"id": "gal-5",      "src": "/gallery/gal-5.jpg",      "alt": "Шашлык на мангале ночью",             "caption": "Мангал и шашлык — у каждого домика"},
+    {"id": "gal-6",      "src": "/gallery/gal-6.jpg",      "alt": "Домики зимой с подсветкой",           "caption": "Домики работают круглый год"},
+    {"id": "gal-7",      "src": "/gallery/gal-7.jpg",      "alt": "Лунная дорожка на озере ночью",       "caption": "Ночь у озера — тишина и звёзды"},
+    {"id": "gal-10",     "src": "/gallery/gal-10.jpg",     "alt": "Баня-бочка в снегу",                  "caption": "Баня на дровах — топится и зимой"}
+  ],
+  "aboutBg": "/gallery/gal-aero.jpg"
+}

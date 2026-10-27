@@ -4,7 +4,6 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 const HOST = "31.31.196.254";
 const USER = "u3698395";
@@ -43,7 +42,8 @@ execFileSync("pscp", ["-batch", "-hostkey", HOSTKEY, "-pw", password, "-r", "out
 
 console.log("==> Swapping docroot");
 plinkRun(
-  `rm -rf ~/${DOCROOT}.old; mv ~/${DOCROOT} ~/${DOCROOT}.old 2>/dev/null; mv ~/${STAGE} ~/${DOCROOT}; chmod -R a+r ~/${DOCROOT}`
+  `rm -rf ~/${DOCROOT}.old; mv ~/${DOCROOT} ~/${DOCROOT}.old 2>/dev/null; mv ~/${STAGE} ~/${DOCROOT}; ` +
+  `mkdir -p ~/uploads; ln -sfn ~/uploads ~/${DOCROOT}/uploads; chmod -R a+r ~/${DOCROOT}`
 );
 
 console.log("==> Done: http://hawaii22.ru");
