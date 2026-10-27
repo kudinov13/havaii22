@@ -99,3 +99,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ```
 - Формы: карточка домика (домик + даты + доп. услуга + комментарий) и футер (домик + комментарий). Оплаты на сайте нет.
 - **План при деплое на хостинг:** заявки POST-ить в бота/endpoint → админам в ЛС; админы помечают занятые даты через бота (без входа в /admin). Бот и бэкенд создадим при выгрузке.
+
+## Хостинг и деплой (reg.ru, ispmanager)
+
+- **Сервер:** `31.31.196.254`, SSH/SFTP/FTP user `u3698395`, docroot `~/www/hawaii22.ru/` (абс.: `/var/www/u3698395/data/www/hawaii22.ru`)
+- **На сервере Node v10** — собирать на нём нельзя; сборка локально или в CI, на сервер уходит только `out/`
+- **SSH:** `plink -hostkey "SHA256:+vcmY5rf+vQH9RqaCwL3Pec2sF3eKRZVPRn6mjmWpgk" -pw <пароль> u3698395@31.31.196.254` (обычный ssh тоже ок, hostkey зафиксирован)
+- **`npm run deploy`** — `scripts/deploy.mjs`: build → `out/` заливается в `~/deploy-new` → атомарная замена docroot. Пароль: env `DEPLOY_SSH_PASSWORD` или `deploy.local.json` (gitignored)
+- **GitHub:** repo `kudinov13/havaii22`, workflow `.github/workflows/deploy.yml` — push в `main` → build + FTP-deploy в `www/hawaii22.ru/`. Нужны secrets: `FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`
+- **DNS:** домен делегировать на NS хостинга (`ns1.hosting.reg.ru`, `ns2.hosting.reg.ru`) в кабинете reg.ru; после этого в ispmanager выпустить Let's Encrypt и включить HTTPS-редирект
