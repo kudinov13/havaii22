@@ -1,26 +1,169 @@
 @import "tailwindcss";
 
+/* ===========================================================================
+   RIVIERA DI CAVA — база отдыха на карьере
+   Светлая тёплая премиальная палитра. Крем, терракота, изумруд, золото.
+   =========================================================================== */
+@theme {
+  /* Основная палитра */
+  --color-cream: #faf5ec; /* фон страницы — тёплый молочный */
+  --color-cream-deep: #f2e8d5; /* чуть темнее для секций */
+  --color-sand: #e8dcc4; /* паспарту, подложки */
+  --color-sand-deep: #d4c5a5; /* границы */
+  --color-terracotta: #c96f4a; /* главный акцент — закат, CTA */
+  --color-terracotta-deep: #a8563a; /* hover */
+  --color-emerald: #2a9d8f; /* изумрудная вода карьера */
+  --color-emerald-deep: #1d7268; /* hover/тёмный изумруд */
+  --color-gold: #d9a441; /* золото — рейтинг, звёзды, детали */
+  --color-gold-soft: #e8c474;
+  --color-ink: #2b2622; /* текст — тёплый тёмно-коричневый */
+  --color-ink-muted: #6b6158; /* вторичный текст */
+  --color-paper: #fffdf8; /* карточки, чуть светлее крема */
+
+  /* Шрифты */
+  --font-display: var(--font-cormorant), "Georgia", serif;
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+
+  /* Радиусы */
+  --radius-card: 4px; /* минимальный радиус — editorial строгость */
+  --radius-soft: 8px;
+
+  /* Тени — тёплые, не чёрные */
+  --shadow-soft: 0 20px 60px -24px rgba(43, 38, 34, 0.22);
+  --shadow-lift: 0 32px 80px -28px rgba(43, 38, 34, 0.32);
+  --shadow-gold: 0 12px 40px -12px rgba(217, 164, 65, 0.35);
+
+  /* Анимации */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-terracotta) 25%, transparent);
+  color: var(--color-ink);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+/* Focus-visible */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-emerald);
+  outline-offset: 3px;
+}
+
+:where(a[href], button:not(:disabled), [role="button"], summary) {
+  cursor: pointer;
+}
+
+/* ===========================================================================
+   Утилиты Riviera
+   =========================================================================== */
+
+/* Рамка-паспарту для фото — визитка стиля */
+@utility frame-passepartout {
+  background: var(--color-paper);
+  padding: 12px;
+  box-shadow: var(--shadow-soft);
+}
+.frame-passepartout img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Тонкая золотая линия-разделитель */
+@utility gold-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+}
+
+/* Glass тёплый (nav) */
+@utility glass-warm {
+  background: color-mix(in oklab, var(--color-cream) 78%, transparent);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-sand-deep) 50%, transparent);
+}
+
+/* Скрытие скроллбара */
+@utility no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Зернистость — лёгкая бумажная фактура */
+@utility paper-grain {
+  position: relative;
+}
+.paper-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ===========================================================================
+   Reduced motion
+   =========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ken-burns, .will-parallax { transform: none !important; animation: none !important; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-warm {
+    background: var(--color-cream);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+.will-parallax { will-change: transform; }
+
+/* Ken Burns для hero */
+@keyframes kenburns {
+  0% { transform: scale(1) translate3d(0, 0, 0); }
+  100% { transform: scale(1.06) translate3d(-1%, -1%, 0); }
+}
+.ken-burns {
+  animation: kenburns 24s linear infinite alternate;
+  will-change: transform;
 }
