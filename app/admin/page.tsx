@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { Anchor, ClipboardList, Home, Images, LogOut, RotateCcw, KeyRound, ExternalLink, CalendarOff, BadgePercent, Menu, X } from "lucide-react";
+import { ClipboardList, Home, Images, LogOut, RotateCcw, KeyRound, ExternalLink, CalendarOff, BadgePercent, Menu, X } from "lucide-react";
+import { LogoMark } from "@/components/LogoMark";
 import { RequestsAdmin } from "@/components/admin/RequestsAdmin";
 import { HousesAdmin } from "@/components/admin/HousesAdmin";
 import { PhotosAdmin } from "@/components/admin/PhotosAdmin";
@@ -89,7 +90,7 @@ export default function AdminPage() {
       <main className="flex min-h-screen items-center justify-center bg-cream px-5">
         <form onSubmit={login} className="w-full max-w-sm rounded-soft bg-paper p-8 shadow-[var(--shadow-soft)]">
           <div className="flex items-center gap-2.5">
-            <Anchor size={24} className="text-terracotta" />
+            <LogoMark className="h-6 w-auto text-terracotta" />
             <span className="font-display text-xl font-semibold text-ink">Гавайи<span className="text-terracotta">22</span></span>
           </div>
           <h1 className="mt-6 font-display text-2xl font-medium text-ink">Вход в админку</h1>
@@ -118,7 +119,7 @@ export default function AdminPage() {
       <header className="sticky top-0 z-40 border-b border-sand-deep/50 bg-cream/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
           <div className="flex items-center gap-2.5">
-            <Anchor size={20} className="text-terracotta" />
+            <LogoMark className="h-5 w-auto text-terracotta" />
             <span className="font-display text-lg font-semibold text-ink">Админка</span>
           </div>
           <nav className="hidden items-center gap-1 md:flex" aria-label="Разделы админки">

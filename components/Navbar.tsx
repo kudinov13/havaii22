@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu, X, Anchor } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { LogoMark } from "./LogoMark";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -39,7 +40,7 @@ export function Navbar() {
     >
       <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8 lg:h-20">
         <a href="#top" className={cn("group flex items-center gap-2.5 transition-colors", scrolled ? "text-ink" : "text-cream")} aria-label="Гавайи22 — на главную">
-          <Anchor size={24} className="text-terracotta transition-transform duration-300 group-hover:rotate-12" />
+          <LogoMark className="h-6 w-auto text-terracotta transition-transform duration-300 group-hover:-translate-y-0.5" />
           <span className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
             Гавайи<span className="text-terracotta">22</span>
           </span>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Anchor, Phone, MessageCircle, Send, CheckCircle2, KeyRound } from "lucide-react";
+import { Phone, MessageCircle, Send, CheckCircle2, KeyRound } from "lucide-react";
+import { LogoMark } from "./LogoMark";
 import { BASE_INFO } from "@/lib/data";
 import { addRequest, useHouses } from "@/lib/siteStore";
 
@@ -44,7 +45,7 @@ export function Footer() {
         <div className="grid gap-10 md:grid-cols-[1.2fr_1fr_1.2fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <Anchor size={24} className="text-terracotta" />
+              <LogoMark className="h-7 w-auto text-terracotta" />
               <span className="font-display text-2xl font-semibold">Гавайи<span className="text-terracotta">22</span></span>
             </div>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-cream/65">
