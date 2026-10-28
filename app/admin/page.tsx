@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { Anchor, ClipboardList, Home, Images, LogOut, RotateCcw, KeyRound, ExternalLink, CalendarOff, BadgePercent } from "lucide-react";
+import { Anchor, ClipboardList, Home, Images, LogOut, RotateCcw, KeyRound, ExternalLink, CalendarOff, BadgePercent, Menu, X } from "lucide-react";
 import { RequestsAdmin } from "@/components/admin/RequestsAdmin";
 import { HousesAdmin } from "@/components/admin/HousesAdmin";
 import { PhotosAdmin } from "@/components/admin/PhotosAdmin";
@@ -53,6 +53,7 @@ export default function AdminPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
   const [tab, setTab] = useState<Tab>("requests");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const requests = useServerRequests();
   const readIds = getReadIds();
@@ -120,7 +121,7 @@ export default function AdminPage() {
             <Anchor size={20} className="text-terracotta" />
             <span className="font-display text-lg font-semibold text-ink">Админка</span>
           </div>
-          <nav className="flex items-center gap-1" aria-label="Разделы админки">
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Разделы админки">
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -132,28 +133,72 @@ export default function AdminPage() {
                 aria-pressed={tab === t.id}
               >
                 <t.icon size={15} />
-                <span className="hidden sm:inline">{t.label}</span>
+                {t.label}
                 {t.id === "requests" && unread > 0 && (
                   <span className="rounded-full bg-terracotta px-1.5 text-[10px] font-bold text-paper">{unread}</span>
                 )}
               </button>
             ))}
           </nav>
-          <div className="flex items-center gap-1">
+          <div className="hidden items-center gap-1 md:flex">
             <Link href="/" target="_blank" className="inline-flex h-8 items-center gap-1 rounded-pill px-2.5 text-xs text-ink-muted hover:bg-sand hover:text-ink" title="Открыть сайт">
-              <ExternalLink size={14} /><span className="hidden sm:inline">Сайт</span>
+              <ExternalLink size={14} /> Сайт
             </Link>
             <button onClick={() => setConfirmReset(true)} className="inline-flex h-8 items-center gap-1 rounded-pill px-2.5 text-xs text-ink-muted hover:bg-sand hover:text-ink" title="Сбросить все правки">
-              <RotateCcw size={14} /><span className="hidden sm:inline">Сброс</span>
+              <RotateCcw size={14} /> Сброс
             </button>
             <button onClick={logout} className="inline-flex h-8 items-center gap-1 rounded-pill px-2.5 text-xs text-ink-muted hover:bg-sand hover:text-ink" title="Выйти">
-              <LogOut size={14} /><span className="hidden sm:inline">Выход</span>
+              <LogOut size={14} /> Выход
             </button>
           </div>
+
+          {/* бургер — только мобила */}
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink hover:bg-sand md:hidden"
+            aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
+
+        {/* мобильное меню */}
+        {menuOpen && (
+          <nav className="border-t border-sand-deep/50 bg-cream px-4 pb-4 pt-2 md:hidden" aria-label="Разделы админки">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                className={cn(
+                  "mt-1 flex w-full items-center gap-3 rounded-soft px-3 py-2.5 text-sm font-medium transition-colors",
+                  tab === t.id ? "bg-ink text-cream" : "text-ink hover:bg-sand",
+                )}
+                aria-pressed={tab === t.id}
+              >
+                <t.icon size={17} className={tab === t.id ? "text-cream" : "text-ink-muted"} />
+                {t.label}
+                {t.id === "requests" && unread > 0 && (
+                  <span className="ml-auto rounded-full bg-terracotta px-2 py-0.5 text-[10px] font-bold text-paper">{unread}</span>
+                )}
+              </button>
+            ))}
+            <div className="mt-3 flex gap-2 border-t border-sand-deep/50 pt-3">
+              <Link href="/" target="_blank" className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-pill border border-sand-deep px-3 py-2 text-xs font-medium text-ink hover:bg-sand">
+                <ExternalLink size={14} /> Сайт
+              </Link>
+              <button onClick={() => { setConfirmReset(true); setMenuOpen(false); }} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-pill border border-sand-deep px-3 py-2 text-xs font-medium text-ink hover:bg-sand">
+                <RotateCcw size={14} /> Сброс
+              </button>
+              <button onClick={logout} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-pill border border-sand-deep px-3 py-2 text-xs font-medium text-ink hover:bg-sand">
+                <LogOut size={14} /> Выход
+              </button>
+            </div>
+          </nav>
+        )}
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-8">
         {tab === "requests" && <RequestsAdmin />}
         {tab === "bookings" && <BookingsAdmin />}
         {tab === "houses" && <HousesAdmin />}
