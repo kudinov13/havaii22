@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { inputCls, btnPrimary, btnGhost } from "@/components/admin/ui";
 
 // Код проверяется на сервере (/api/admin.php); локальный — фолбэк для dev.
-const ADMIN_CODE = "gavai22";
+const ADMIN_CODE = "Gv22!Katun#Bereg";
 const AUTH_KEY = "g22_admin_auth";
 const AUTH_EVENT = "g22-auth-change";
 
