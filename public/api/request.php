@@ -150,7 +150,8 @@ if ($cid !== null) {
 $logLine = json_encode([
     'id' => $reqId,
     'ts' => $now, 'ip' => $ip, 'name' => $name, 'phone' => $phone,
-    'houseName' => $in['houseName'] ?? null, 'service' => $in['service'] ?? null,
+    'houseId' => $in['houseId'] ?? null, 'houseName' => $in['houseName'] ?? null,
+    'service' => $in['service'] ?? null,
     'checkIn' => $ci ?: null, 'checkOut' => $co ?: null,
     'comment' => $in['comment'] ?? null, 'source' => $in['source'] ?? null,
     'tg' => $tg['ok'], 'tg_http' => $tg['http'],

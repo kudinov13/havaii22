@@ -89,31 +89,29 @@ function saveData(string $file, array $data): void {
     file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
 }
 
-// Обновить статус заявки в requests-log.jsonl (строка с нужным id)
-function reqSetStatus(string $file, string $id, string $status, string $by): bool {
-    if (!is_file($file)) return false;
+// Обновить заявку в requests-log.jsonl: $mut меняет запись, возвращаем итог (null — не найдена)
+function reqUpdate(string $file, string $id, callable $mut): ?array {
+    if (!is_file($file)) return null;
     $fp = fopen($file, 'c+');
-    if (!$fp || !flock($fp, LOCK_EX)) { if ($fp) fclose($fp); return false; }
+    if (!$fp || !flock($fp, LOCK_EX)) { if ($fp) fclose($fp); return null; }
     $lines = file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $found = false;
+    $out = null;
     foreach ($lines as $i => $l) {
         $r = json_decode($l, true);
         if (is_array($r) && (string)($r['id'] ?? '') === $id) {
-            $r['status'] = $status;
-            $r['statusBy'] = $by;
-            $r['statusTs'] = time();
+            $mut($r);
             $lines[$i] = json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $found = true;
+            $out = $r;
         }
     }
-    if ($found) {
+    if ($out !== null) {
         ftruncate($fp, 0);
         rewind($fp);
         fwrite($fp, implode("\n", $lines) . "\n");
     }
     flock($fp, LOCK_UN);
     fclose($fp);
-    return $found;
+    return $out;
 }
 
 function loadState(string $file): array {
@@ -176,6 +174,31 @@ function parseDateSegment(string $seg): ?array {
         if (count($out) > 366) return null;
     }
     return $out;
+}
+
+// даты заявки: checkIn..checkOut (ISO) → все дни включительно
+function reqDays(array $r): array {
+    $ci = (string)($r['checkIn'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ci)) return [];
+    $co = (string)($r['checkOut'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $co) || $co < $ci) $co = $ci;
+    $out = [];
+    for ($t = strtotime($ci), $e = strtotime($co); $t <= $e && count($out) < 367; $t += 86400) {
+        $out[] = date('Y-m-d', $t);
+    }
+    return $out;
+}
+
+// id домика для заявки: houseId, иначе точное совпадение по имени
+function houseIdFor(array $houses, array $r): string {
+    $ref = trim((string)($r['houseId'] ?? ''));
+    if ($ref !== '') return $ref;
+    $name = mb_strtolower(trim((string)($r['houseName'] ?? '')));
+    if ($name === '') return '';
+    foreach ($houses as $h) {
+        if (mb_strtolower(trim((string)($h['name'] ?? ''))) === $name) return (string)$h['id'];
+    }
+    return '';
 }
 
 function fmtRanges(array $dates): string {
@@ -305,9 +328,42 @@ foreach ((array)$updates['result'] as $u) {
             $newStatus = $rm[1] === 'ok' ? 'confirmed' : 'declined';
             $who = trim(($cq['from']['first_name'] ?? '') . ' ' . ($cq['from']['last_name'] ?? ''));
             if ($who === '') $who = '@' . ($cq['from']['username'] ?? 'кто-то');
-            $ok = reqSetStatus($DATA_DIR . '/requests-log.jsonl', $reqId, $newStatus, $who);
+            $occupChanged = false;
+            $req = reqUpdate($DATA_DIR . '/requests-log.jsonl', $reqId, function (&$r) use ($newStatus, $who, &$houses, &$occupChanged) {
+                $r['status'] = $newStatus;
+                $r['statusBy'] = $who;
+                $r['statusTs'] = time();
+                // подтверждение → даты заявки заняты; отклонение → снять её даты
+                if ($newStatus === 'confirmed') {
+                    $hid = (string)($r['appliedHouse'] ?? '') ?: houseIdFor($houses, $r);
+                    $days = reqDays($r);
+                    if ($hid !== '' && $days) {
+                        $houses = applyDates($houses, $hid, $days, true);
+                        $r['appliedDates'] = $days;
+                        $r['appliedHouse'] = $hid;
+                        $occupChanged = true;
+                    }
+                } elseif (!empty($r['appliedDates']) && !empty($r['appliedHouse'])) {
+                    $hid = (string)$r['appliedHouse'];
+                    // в старых записях appliedHouse может быть именем — резолвим в id
+                    $byId = false;
+                    foreach ($houses as $h) if ((string)$h['id'] === $hid) { $byId = true; break; }
+                    if (!$byId) $hid = houseIdFor($houses, ['houseName' => $hid]);
+                    if ($hid !== '') {
+                        $houses = applyDates($houses, $hid, (array)$r['appliedDates'], false);
+                        unset($r['appliedDates'], $r['appliedHouse']);
+                        $occupChanged = true;
+                    }
+                }
+            });
+            $ok = $req !== null;
+            if ($occupChanged) {
+                $data['houses'] = $houses;
+                saveData($DATA_FILE, $data);
+            }
             $orig = (string)($cq['message']['text'] ?? '');
             $mark = $newStatus === 'confirmed' ? "✅ <b>Подтверждена</b> — {$who}" : "❌ <b>Отклонена</b> — {$who}";
+            if ($occupChanged && $newStatus === 'confirmed') $mark .= ' · 📅 даты заняты';
             $suffix = $ok ? $mark : "⚠️ Заявка не найдена в логе ({$who})";
             if ($msgId !== null && $chatId !== '') {
                 editMsg($cfg, $chatId, $msgId, $orig . "\n\n" . $suffix);

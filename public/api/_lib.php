@@ -88,6 +88,60 @@ function g22_save_data(array $patch): void {
     fclose($fp);
 }
 
+// даты заявки: checkIn..checkOut (ISO Y-m-d) → все дни включительно
+function g22_req_days(?string $ci, ?string $co): array {
+    if (!is_string($ci) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ci)) return [];
+    $to = (is_string($co) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $co) && $co >= $ci) ? $co : $ci;
+    $out = [];
+    for ($t = strtotime($ci), $e = strtotime($to); $t <= $e && count($out) < 367; $t += 86400) {
+        $out[] = date('Y-m-d', $t);
+    }
+    return $out;
+}
+
+// Занятость по заявке: $block=true → даты checkIn..checkOut заняты (домик по
+// houseId или houseName), запоминаем в appliedDates/appliedHouse; $block=false —
+// снимает ровно те даты, что ставила эта заявка (ручные периоды не трогает).
+function g22_apply_request_occupancy(array &$req, bool $block): bool {
+    if ($block) {
+        $days = g22_req_days($req['checkIn'] ?? null, $req['checkOut'] ?? null);
+        if (!$days) return false;
+    } else {
+        $days = is_array($req['appliedDates'] ?? null) ? $req['appliedDates'] : [];
+        if (!$days) return false;
+    }
+    $ref = (string)($req['houseId'] ?? $req['appliedHouse'] ?? $req['houseName'] ?? '');
+    if ($ref === '') return false;
+    $houses = (g22_load_data()['houses'] ?? []);
+    $hit = false;
+    $hid = '';
+    foreach ($houses as &$h) {
+        $match = (string)($h['id'] ?? '') === $ref
+            || mb_strtolower(trim((string)($h['name'] ?? ''))) === mb_strtolower($ref);
+        if (!$match) continue;
+        $cur = array_map('strval', (array)($h['blockedDates'] ?? []));
+        if ($block) {
+            $h['blockedDates'] = array_values(array_unique(array_merge($cur, $days)));
+            sort($h['blockedDates']);
+        } else {
+            $del = array_flip($days);
+            $h['blockedDates'] = array_values(array_filter($cur, fn($d) => !isset($del[$d])));
+        }
+        $hit = true;
+        $hid = (string)($h['id'] ?? '');
+    }
+    unset($h);
+    if (!$hit) return false;
+    g22_save_data(['houses' => $houses]);
+    if ($block) {
+        $req['appliedDates'] = $days;
+        $req['appliedHouse'] = $hid !== '' ? $hid : $ref;
+    } else {
+        unset($req['appliedDates'], $req['appliedHouse']);
+    }
+    return true;
+}
+
 // --- авторизация админки: код из tg-config.php['admin_code'] ---
 function g22_admin_check(array $cfg, string $code): bool {
     $expected = (string)($cfg['admin_code'] ?? '');

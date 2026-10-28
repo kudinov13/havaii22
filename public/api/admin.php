@@ -59,8 +59,8 @@ if ($action === 'set_status') {
         foreach ($lines as $i => $l) {
             $r = json_decode($l, true);
             if (is_array($r) && (string)($r['id'] ?? '') === $id) {
-                if ($status === '') { unset($r['status'], $r['statusBy'], $r['statusTs']); }
-                else { $r['status'] = $status; $r['statusBy'] = 'админка'; $r['statusTs'] = time(); }
+                if ($status === '') { unset($r['status'], $r['statusBy'], $r['statusTs']); g22_apply_request_occupancy($r, false); }
+                else { $r['status'] = $status; $r['statusBy'] = 'админка'; $r['statusTs'] = time(); g22_apply_request_occupancy($r, $status === 'confirmed'); }
                 $lines[$i] = json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                 $found = true;
             }

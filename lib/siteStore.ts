@@ -47,15 +47,23 @@ function notify(): void {
 function bootstrapServer(): void {
   if (serverBooted || typeof window === "undefined") return;
   serverBooted = true;
-  fetch("/api/data.php")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((d) => {
-      if (d?.ok && d.data) {
-        serverData = d.data;
-        notify();
-      }
-    })
-    .catch(() => {});
+  void refreshServerData();
+}
+
+// Перечитать общие данные с сервера (после действий, меняющих их на бэке —
+// например подтверждение заявки ставит занятость).
+export async function refreshServerData(): Promise<void> {
+  try {
+    const r = await fetch("/api/data.php");
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d?.ok && d.data) {
+      serverData = d.data;
+      notify();
+    }
+  } catch {
+    /* офлайн */
+  }
 }
 
 /* ---------- Локальный кэш (fallback / офлайн) ---------- */
@@ -323,6 +331,7 @@ export async function setServerRequestStatus(id: string, status: "confirmed" | "
     if (r.ok) {
       serverRequests = serverRequests.map((x) => (x.id === id ? { ...x, status: (status || undefined) as ServerRequest["status"], statusBy: status ? "админка" : undefined } : x));
       notify();
+      void refreshServerData(); // сервер применил занятость по заявке
     }
     return r.ok;
   } catch {
