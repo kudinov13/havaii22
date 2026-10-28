@@ -89,6 +89,33 @@ function saveData(string $file, array $data): void {
     file_put_contents($file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
 }
 
+// Обновить статус заявки в requests-log.jsonl (строка с нужным id)
+function reqSetStatus(string $file, string $id, string $status, string $by): bool {
+    if (!is_file($file)) return false;
+    $fp = fopen($file, 'c+');
+    if (!$fp || !flock($fp, LOCK_EX)) { if ($fp) fclose($fp); return false; }
+    $lines = file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $found = false;
+    foreach ($lines as $i => $l) {
+        $r = json_decode($l, true);
+        if (is_array($r) && (string)($r['id'] ?? '') === $id) {
+            $r['status'] = $status;
+            $r['statusBy'] = $by;
+            $r['statusTs'] = time();
+            $lines[$i] = json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $found = true;
+        }
+    }
+    if ($found) {
+        ftruncate($fp, 0);
+        rewind($fp);
+        fwrite($fp, implode("\n", $lines) . "\n");
+    }
+    flock($fp, LOCK_UN);
+    fclose($fp);
+    return $found;
+}
+
 function loadState(string $file): array {
     $j = is_file($file) ? json_decode((string)file_get_contents($file), true) : null;
     return is_array($j) ? $j : ['offset' => 0, 'pending' => []];
@@ -100,17 +127,41 @@ function saveState(string $file, array $st): void {
 
 /* ---------------- Даты ---------------- */
 
-// "10.11-12.11", "10.11.2026 — 12.11.2026", "2026-11-10 2026-11-12", "10.11"
+// Даты: одиночные, диапазоны и списки.
+// "10.11", "10.11-15.11", "10.11.2026 — 15.11.2026", "2026-11-10 — 2026-11-15",
+// "10.11-15.11, 20.11-22.11, 25.11", "с 10.11 по 15.11"
+// Внутри даты разделители — только "." и "/". "-" / "–" / "—" — разделители диапазона.
 function parseDates(string $text): ?array {
-    $text = trim($text);
-    $rx = '/(\d{1,2})[.\-\/](\d{1,2})(?:[.\-\/](\d{2,4}))?/u';
-    preg_match_all($rx, $text, $m);
+    $all = [];
+    foreach (preg_split('/[,;\n]+/u', trim($text)) as $seg) {
+        $seg = trim($seg);
+        if ($seg === '') continue;
+        $days = parseDateSegment($seg);
+        if ($days === null) return null;
+        foreach ($days as $d) $all[$d] = true;
+    }
+    if (!$all) return null;
+    $out = array_keys($all);
+    sort($out);
+    return $out;
+}
+
+function parseDateSegment(string $seg): ?array {
     $dates = [];
-    if (preg_match_all('/(\d{4})-(\d{2})-(\d{2})/', $text, $iso) && count($iso[0]) >= 1 && count($m[0]) < 2) {
-        for ($i = 0; $i < count($iso[0]); $i++) $dates[] = sprintf('%04d-%02d-%02d', $iso[1][$i], $iso[2][$i], $iso[3][$i]);
-    } else {
+    // ISO yyyy-mm-dd
+    if (preg_match_all('/(\d{4})-(\d{1,2})-(\d{1,2})/', $seg, $iso)) {
+        for ($i = 0; $i < count($iso[0]); $i++) {
+            [$y, $mo, $d] = [(int)$iso[1][$i], (int)$iso[2][$i], (int)$iso[3][$i]];
+            if ($mo < 1 || $mo > 12 || $d < 1 || $d > 31) return null;
+            $dates[] = sprintf('%04d-%02d-%02d', $y, $mo, $d);
+        }
+        // убираем съеденное, чтобы остаток не попал в dd.mm-парсер
+        $seg = preg_replace('/\d{4}-\d{1,2}-\d{1,2}/', ' ', $seg);
+    }
+    if (preg_match_all('/(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{2,4}))?/u', $seg, $m)) {
         for ($i = 0; $i < count($m[0]); $i++) {
-            $d = (int)$m[1][$i]; $mo = (int)$m[2][$i]; $y = $m[3][$i] !== '' ? (int)$m[3][$i] : (int)date('Y');
+            $d = (int)$m[1][$i]; $mo = (int)$m[2][$i];
+            $y = $m[3][$i] !== '' ? (int)$m[3][$i] : (int)date('Y');
             if ($y < 100) $y += 2000;
             if ($d < 1 || $d > 31 || $mo < 1 || $mo > 12) return null;
             $dates[] = sprintf('%04d-%02d-%02d', $y, $mo, $d);
@@ -118,9 +169,9 @@ function parseDates(string $text): ?array {
     }
     if (!$dates) return null;
     sort($dates);
-    $from = $dates[0]; $to = end($dates);
+    // 1 дата — один день; 2+ — диапазон от первой до последней
     $out = [];
-    for ($t = strtotime($from); $t <= strtotime($to); $t += 86400) {
+    for ($t = strtotime($dates[0]), $end = strtotime(end($dates)); $t <= $end; $t += 86400) {
         $out[] = date('Y-m-d', $t);
         if (count($out) > 366) return null;
     }
@@ -218,6 +269,10 @@ function applyDates(array $houses, string $houseId, array $days, bool $block): a
 /* ---------------- Логика ---------------- */
 
 $state  = loadState($STATE_FILE);
+// чистим pending, повисшие на id группы (остались от старой групповой эпохи)
+foreach (array_keys($state['pending'] ?? []) as $pk) {
+    if (str_starts_with((string)$pk, '-')) unset($state['pending'][$pk]);
+}
 $data   = loadData($DATA_FILE, $SEED_FILE);
 $houses = $data['houses'] ?? [];
 
@@ -242,6 +297,25 @@ foreach ((array)$updates['result'] as $u) {
         $chatId   = (string)($cq['message']['chat']['id'] ?? '');
         $chatType = (string)($cq['message']['chat']['type'] ?? '');
         $msgId    = $cq['message']['message_id'] ?? null;
+
+        // Кнопки «Подтвердить/Отклонить» под уведомлениями в ОБЩЕМ ЧАТЕ.
+        // Привязаны к id заявки в callback_data — каждая кнопка работает со своей заявкой.
+        if (preg_match('/^req_(ok|no):(.+)$/', (string)$cq['data'], $rm)) {
+            $reqId = $rm[2];
+            $newStatus = $rm[1] === 'ok' ? 'confirmed' : 'declined';
+            $who = trim(($cq['from']['first_name'] ?? '') . ' ' . ($cq['from']['last_name'] ?? ''));
+            if ($who === '') $who = '@' . ($cq['from']['username'] ?? 'кто-то');
+            $ok = reqSetStatus($DATA_DIR . '/requests-log.jsonl', $reqId, $newStatus, $who);
+            $orig = (string)($cq['message']['text'] ?? '');
+            $mark = $newStatus === 'confirmed' ? "✅ <b>Подтверждена</b> — {$who}" : "❌ <b>Отклонена</b> — {$who}";
+            $suffix = $ok ? $mark : "⚠️ Заявка не найдена в логе ({$who})";
+            if ($msgId !== null && $chatId !== '') {
+                editMsg($cfg, $chatId, $msgId, $orig . "\n\n" . $suffix);
+            }
+            plog("req {$reqId} -> {$newStatus} by {$who}" . ($ok ? '' : ' (not found)'));
+            continue;
+        }
+
         if ($chatType !== 'private' || $chatId === '' || $msgId === null) continue;
 
         if (!$isAuthed($chatId)) {
@@ -282,7 +356,7 @@ foreach ((array)$updates['result'] as $u) {
             $state['pending'][$chatId] = ['action' => $m[1], 'house' => $house['id'], 'ts' => time()];
             editMsg($cfg, $chatId, $msgId,
                 ($m[1] === 'busy' ? "🔴 Занять «{$house['name']}»" : "🟢 Освободить «{$house['name']}»") .
-                "\n\nВведите даты: <code>10.11-15.11</code>\nили одну дату: <code>10.11</code>",
+                "\n\nВведите даты:\n<code>10.11-15.11</code> — диапазон\n<code>10.11</code> — один день\n<code>10.11-15.11, 20.11-22.11, 25.11</code> — список",
                 cancelKeyboard());
             continue;
         }
@@ -379,7 +453,7 @@ foreach ((array)$updates['result'] as $u) {
     $pending = $state['pending'][$chatId] ?? null;
     if ($pending) {
         $days = parseDates($text);
-        if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Пример: <code>10.11-15.11</code> или <code>24.12</code>', cancelKeyboard()); continue; }
+        if (!$days) { sendMsg($cfg, $chatId, 'Не понял даты. Примеры: <code>10.11-15.11</code>, <code>24.12</code>, <code>10.11-15.11, 20.11-22.11</code>', cancelKeyboard()); continue; }
         unset($state['pending'][$chatId]);
         $houses = applyDates($houses, $pending['house'], $days, $pending['action'] === 'busy');
         $data['houses'] = $houses;

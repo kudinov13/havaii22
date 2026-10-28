@@ -46,6 +46,30 @@ if ($action === 'requests') {
     g22_out(200, ['ok' => true, 'requests' => $items]);
 }
 
+if ($action === 'set_status') {
+    $id = (string)($_GET['id'] ?? $_POST['id'] ?? '');
+    $status = (string)($_GET['status'] ?? $_POST['status'] ?? '');
+    if ($id === '' || !in_array($status, ['confirmed', 'declined', ''], true)) {
+        g22_out(422, ['ok' => false, 'error' => 'bad_args']);
+    }
+    $f = g22_requests_log();
+    $found = false;
+    if (is_file($f)) {
+        $lines = file($f, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        foreach ($lines as $i => $l) {
+            $r = json_decode($l, true);
+            if (is_array($r) && (string)($r['id'] ?? '') === $id) {
+                if ($status === '') { unset($r['status'], $r['statusBy'], $r['statusTs']); }
+                else { $r['status'] = $status; $r['statusBy'] = 'админка'; $r['statusTs'] = time(); }
+                $lines[$i] = json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $found = true;
+            }
+        }
+        if ($found) file_put_contents($f, implode("\n", $lines) . ($lines ? "\n" : ''), LOCK_EX);
+    }
+    g22_out($found ? 200 : 404, $found ? ['ok' => true] : ['ok' => false, 'error' => 'not_found']);
+}
+
 if ($action === 'delete_request') {
     $id = (string)($_GET['id'] ?? $_POST['id'] ?? '');
     $f = g22_requests_log();

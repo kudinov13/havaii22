@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Inbox, Trash2, Phone, CheckCircle2, Circle, CalendarDays, RefreshCw } from "lucide-react";
+import { Inbox, Phone, CheckCircle2, Circle, CalendarDays, RefreshCw, Check, X } from "lucide-react";
 import {
-  markRequestRead, deleteServerRequest,
+  markRequestRead, deleteServerRequest, setServerRequestStatus,
   useServerRequests, getReadIds, refreshServerRequests,
 } from "@/lib/siteStore";
 import { fmtRuRange } from "@/lib/dates";
@@ -53,12 +53,16 @@ export function RequestsAdmin() {
         <ul className="mt-5 space-y-3">
           {items.map((r) => {
             const read = readIds.has(r.id);
+            const confirmed = r.status === "confirmed";
+            const declined = r.status === "declined";
             return (
               <li
                 key={r.id}
                 className={cn(
                   "flex flex-col gap-3 rounded-soft bg-paper p-4 shadow-[var(--shadow-soft)] sm:flex-row sm:items-center",
                   !read && "ring-2 ring-gold/50",
+                  confirmed && "ring-2 ring-emerald/50",
+                  declined && "opacity-60",
                 )}
               >
                 <button
@@ -95,15 +99,39 @@ export function RequestsAdmin() {
                       <CalendarDays size={12} /> {fmtRuRange(r.checkIn, r.checkOut ?? r.checkIn)}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-ink-muted/70">{r.source ?? "сайт"} · {fmtDate(r.ts)}{r.tg ? " · 📨 в Telegram" : ""}</p>
+                  <p className="mt-1 text-xs text-ink-muted/70">
+                    {r.source ?? "сайт"} · {fmtDate(r.ts)}{r.tg ? " · 📨 в Telegram" : ""}
+                    {confirmed && <span className="ml-1 font-medium text-emerald-deep">· ✅ подтверждена{r.statusBy ? ` (${r.statusBy})` : ""}</span>}
+                    {declined && <span className="ml-1 font-medium text-terracotta-deep">· ❌ отклонена{r.statusBy ? ` (${r.statusBy})` : ""}</span>}
+                  </p>
                 </div>
 
-                <button
-                  onClick={async () => { await deleteServerRequest(r.id); await refreshServerRequests(); }}
-                  className={iconBtn} aria-label="Удалить заявку" title="Удалить"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <div className="flex shrink-0 flex-row gap-1.5 sm:flex-col">
+                  <button
+                    onClick={async () => { await setServerRequestStatus(r.id, confirmed ? "" : "confirmed"); }}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-pill px-3 py-1.5 text-xs font-semibold transition-colors",
+                      confirmed ? "bg-emerald text-paper" : "bg-emerald/10 text-emerald-deep hover:bg-emerald/20",
+                    )}
+                  >
+                    <Check size={13} /> {confirmed ? "Подтверждена" : "Подтвердить"}
+                  </button>
+                  <button
+                    onClick={async () => { await setServerRequestStatus(r.id, declined ? "" : "declined"); }}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-pill px-3 py-1.5 text-xs font-semibold transition-colors",
+                      declined ? "bg-terracotta text-paper" : "bg-terracotta/10 text-terracotta-deep hover:bg-terracotta/20",
+                    )}
+                  >
+                    <X size={13} /> {declined ? "Отклонена" : "Отклонить"}
+                  </button>
+                  <button
+                    onClick={async () => { await deleteServerRequest(r.id); await refreshServerRequests(); }}
+                    className="inline-flex items-center gap-1 rounded-pill bg-sand px-3 py-1.5 text-xs font-semibold text-ink-muted transition-colors hover:bg-sand-deep"
+                  >
+                    Удалить
+                  </button>
+                </div>
               </li>
             );
           })}

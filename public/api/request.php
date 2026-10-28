@@ -126,6 +126,9 @@ $lines[] = '';
 $lines[] = "\u{1F550} " . date('d.m.Y H:i');
 $text = implode("\n", $lines);
 
+// id заявки генерируем ДО отправки — кнопки в чате привязываются к нему
+$reqId = $field('id') ?: uniqid('r_');
+
 $cid = chatId($cfg, $dataDir);
 $tg = ['ok' => false, 'http' => 0, 'err' => 'no_chat_id'];
 if ($cid !== null) {
@@ -134,12 +137,18 @@ if ($cid !== null) {
         'text' => $text,
         'parse_mode' => 'HTML',
         'disable_web_page_preview' => true,
+        'reply_markup' => [
+            'inline_keyboard' => [[
+                ['text' => '✅ Подтвердить', 'callback_data' => 'req_ok:' . $reqId],
+                ['text' => '❌ Отклонить',  'callback_data' => 'req_no:' . $reqId],
+            ]],
+        ],
     ]);
 }
 
 // --- бэкап-лог заявок (вне docroot, рядом с конфигом) ---
 $logLine = json_encode([
-    'id' => $field('id') ?: uniqid('r_'),
+    'id' => $reqId,
     'ts' => $now, 'ip' => $ip, 'name' => $name, 'phone' => $phone,
     'houseName' => $in['houseName'] ?? null, 'service' => $in['service'] ?? null,
     'checkIn' => $ci ?: null, 'checkOut' => $co ?: null,

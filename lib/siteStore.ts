@@ -265,6 +265,8 @@ export interface ServerRequest {
   comment?: string | null;
   source?: string | null;
   tg?: boolean;
+  status?: "confirmed" | "declined";
+  statusBy?: string;
 }
 
 // Кэш серверных заявок — шапка админки и вкладка читают его
@@ -306,6 +308,22 @@ export async function deleteServerRequest(id: string): Promise<boolean> {
     const r = await fetch(`/api/admin.php?action=delete_request&id=${encodeURIComponent(id)}`, {
       headers: { "X-Admin-Code": code },
     });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function setServerRequestStatus(id: string, status: "confirmed" | "declined" | ""): Promise<boolean> {
+  const code = getAdminCode();
+  try {
+    const r = await fetch(`/api/admin.php?action=set_status&id=${encodeURIComponent(id)}&status=${status}`, {
+      headers: { "X-Admin-Code": code },
+    });
+    if (r.ok) {
+      serverRequests = serverRequests.map((x) => (x.id === id ? { ...x, status: (status || undefined) as ServerRequest["status"], statusBy: status ? "админка" : undefined } : x));
+      notify();
+    }
     return r.ok;
   } catch {
     return false;
