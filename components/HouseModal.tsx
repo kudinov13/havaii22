@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { X, ChevronLeft, ChevronRight, Users, Maximize, Phone, CheckCircle2, CalendarOff } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Users, Maximize, Phone, CheckCircle2 } from "lucide-react";
 import { BASE_INFO } from "@/lib/data";
 import type { House } from "@/lib/types";
 import { formatPrice, cn } from "@/lib/utils";
 import { OPEN_HOUSE_EVENT } from "@/lib/events";
 import { getHouses, addRequest, useServices } from "@/lib/siteStore";
-import { eachDayISO, toDateRanges, fmtRuRange, fmtRuDay } from "@/lib/dates";
+import { eachDayISO, toISO, fmtRuRange, fmtRuDay } from "@/lib/dates";
+import { DateCalendar } from "./DateCalendar";
 import { useImageSrcs } from "@/lib/useImageSrc";
 import { AmenityList } from "./AmenityIcon";
 
@@ -58,10 +59,17 @@ export function HouseModal() {
   const srcs = useImageSrcs(house?.images.map((im) => im.src) ?? []);
   const images = house?.images ?? [];
   const blocked = house?.blockedDates ?? [];
-  const busyRanges = toDateRanges(blocked);
+  const today = toISO(new Date());
   // Конфликт: выбранные даты пересекаются с занятыми
   const wantDays = checkIn ? eachDayISO(checkIn, checkOut || checkIn) : [];
   const conflictDays = wantDays.filter((d) => blocked.includes(d));
+
+  // Клик по дню календаря: первый — заезд, второй — выезд
+  function pickDay(iso: string) {
+    if (iso < today) return;
+    if (!checkIn || checkOut || iso <= checkIn) { setCheckIn(iso); setCheckOut(""); }
+    else setCheckOut(iso);
+  }
 
   function submitRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -180,16 +188,26 @@ export function HouseModal() {
                   <AmenityList amenities={house.amenities} className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5" />
                 </div>
 
-                {busyRanges.length > 0 && (
-                  <div className="rounded-soft bg-terracotta/8 p-3.5">
-                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-terracotta-deep">
-                      <CalendarOff size={13} /> Занятые даты
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                    Даты заезда — выезда <span className="font-normal normal-case tracking-normal text-ink-muted/70">(зачёркнутые заняты)</span>
+                  </h4>
+                  <DateCalendar
+                    busy={new Set(blocked)}
+                    from={checkIn}
+                    to={checkOut}
+                    onPick={pickDay}
+                    className="mt-2 max-w-xs"
+                  />
+                  {checkIn && (
+                    <p className="mt-1.5 flex items-center gap-2 text-xs text-ink-muted">
+                      Выбрано: <b className="text-ink">{fmtRuRange(checkIn, checkOut || checkIn)}</b>
+                      <button type="button" onClick={() => { setCheckIn(""); setCheckOut(""); }} className="text-terracotta-deep underline underline-offset-2 hover:text-terracotta">
+                        сбросить
+                      </button>
                     </p>
-                    <p className="mt-1.5 text-sm text-ink-muted">
-                      {busyRanges.map(([f, t]) => fmtRuRange(f, t)).join(" · ")}
-                    </p>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div className="mt-auto border-t border-sand-deep/60 pt-5">
                   {sent ? (
@@ -210,24 +228,6 @@ export function HouseModal() {
                         className="rounded-soft border border-sand-deep bg-cream px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-muted/60 focus:outline-none focus:ring-2 focus:ring-emerald/50"
                         aria-label="Телефон" required minLength={6}
                       />
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="flex flex-col gap-1 text-xs text-ink-muted">
-                          Заезд
-                          <input
-                            type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)}
-                            className="rounded-soft border border-sand-deep bg-cream px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-emerald/50"
-                            aria-label="Дата заезда"
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-ink-muted">
-                          Выезд
-                          <input
-                            type="date" value={checkOut} min={checkIn} onChange={(e) => setCheckOut(e.target.value)}
-                            className="rounded-soft border border-sand-deep bg-cream px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-emerald/50"
-                            aria-label="Дата выезда"
-                          />
-                        </label>
-                      </div>
                       <select
                         value={service} onChange={(e) => setService(e.target.value)}
                         className="rounded-soft border border-sand-deep bg-cream px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-emerald/50"
