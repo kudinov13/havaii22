@@ -32,7 +32,7 @@ function useAuthed(): boolean {
       window.addEventListener(AUTH_EVENT, cb);
       return () => window.removeEventListener(AUTH_EVENT, cb);
     },
-    () => sessionStorage.getItem(AUTH_KEY) === "1",
+    () => localStorage.getItem(AUTH_KEY) === "1",
     () => false,
   );
 }
@@ -68,7 +68,7 @@ export default function AdminPage() {
     // null = сервер недоступен (dev/offline) — сверяем с локальным кодом
     if (ok === true || (ok === null && code === ADMIN_CODE)) {
       setAdminCode(code);
-      sessionStorage.setItem(AUTH_KEY, "1");
+      localStorage.setItem(AUTH_KEY, "1");
       window.dispatchEvent(new CustomEvent(AUTH_EVENT));
       void refreshServerRequests();
     } else {
@@ -77,7 +77,7 @@ export default function AdminPage() {
   }
 
   function logout() {
-    sessionStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(AUTH_KEY);
     window.dispatchEvent(new CustomEvent(AUTH_EVENT));
   }
 

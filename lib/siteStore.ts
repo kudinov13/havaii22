@@ -108,11 +108,11 @@ export function subscribeStore(callback: () => void): () => void {
 
 export function getAdminCode(): string {
   if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(ADMIN_CODE_KEY) ?? "";
+  return localStorage.getItem(ADMIN_CODE_KEY) ?? "";
 }
 
 export function setAdminCode(code: string): void {
-  sessionStorage.setItem(ADMIN_CODE_KEY, code);
+  localStorage.setItem(ADMIN_CODE_KEY, code);
 }
 
 /** Проверка кода на сервере. true = ок, false = неверный, null = сервер недоступен (dev). */

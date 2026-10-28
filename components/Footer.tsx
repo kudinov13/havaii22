@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Anchor, Phone, MessageCircle, Send, CheckCircle2 } from "lucide-react";
+import { Anchor, Phone, MessageCircle, Send, CheckCircle2, KeyRound } from "lucide-react";
 import { BASE_INFO } from "@/lib/data";
 import { addRequest, useHouses } from "@/lib/siteStore";
 
@@ -120,6 +120,10 @@ export function Footer() {
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-cream/10 pt-6 text-sm text-cream/50 sm:flex-row">
           <p>© {new Date().getFullYear()} Гавайи22. Все права защищены.</p>
           <p>{BASE_INFO.address}</p>
+          <a href="/admin" className="inline-flex items-center gap-1.5 text-xs text-cream/35 transition-colors hover:text-cream/70">
+            <KeyRound size={12} />
+            Для персонала
+          </a>
         </div>
       </div>
     </footer>
